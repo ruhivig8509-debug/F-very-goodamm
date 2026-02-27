@@ -4641,6 +4641,7 @@ class WebServer:
 # ◈ BOT INITIALIZATION & STARTUP
 # ═══════════════════════════════════════════════════════════════
 
+async def main():
     if not DATABASE_URL:
         logger.error("❌ DATABASE_URL not set!")
         sys.exit(1)
