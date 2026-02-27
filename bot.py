@@ -635,14 +635,20 @@ class DatabaseManager:
     def __init__(self):
         self.pool: Optional[asyncpg.Pool] = None
         self._ready = False
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None  # Lazy init — must be inside event loop
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Lazily create lock inside running event loop"""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def connect(self) -> None:
         """Establish connection pool to PostgreSQL"""
         if self._ready and self.pool:
             return
 
-        async with self._lock:
+        async with self._get_lock():
             if self._ready and self.pool:
                 return
 
@@ -1332,23 +1338,35 @@ class DatabaseManager:
             self._ready = False
             logger.info("Database connection closed.")
 
+    async def _ensure_connected(self) -> None:
+        """Make sure pool is initialized before any query"""
+        if not self.pool or not self._ready:
+            logger.warning("⚠️ DB pool not ready, reconnecting...")
+            await self.connect()
+        if not self.pool:
+            raise RuntimeError("Database pool is unavailable. Check DATABASE_URL and DB connection.")
+
     async def execute(self, query: str, *args) -> str:
         """Execute a query"""
+        await self._ensure_connected()
         async with self.pool.acquire() as conn:
             return await conn.execute(query, *args)
 
     async def fetch(self, query: str, *args) -> list:
         """Fetch multiple rows"""
+        await self._ensure_connected()
         async with self.pool.acquire() as conn:
             return await conn.fetch(query, *args)
 
     async def fetchrow(self, query: str, *args) -> Optional[asyncpg.Record]:
         """Fetch a single row"""
+        await self._ensure_connected()
         async with self.pool.acquire() as conn:
             return await conn.fetchrow(query, *args)
 
     async def fetchval(self, query: str, *args) -> Any:
         """Fetch a single value"""
+        await self._ensure_connected()
         async with self.pool.acquire() as conn:
             return await conn.fetchval(query, *args)
 
@@ -25668,6 +25686,7 @@ async def s12_dbstats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     wait = await msg.reply_text("⏳ Querying database...")
 
     try:
+        await db._ensure_connected()
         async with db.pool.acquire() as conn:
             tables = await conn.fetch(
                 "SELECT table_name FROM information_schema.tables "
