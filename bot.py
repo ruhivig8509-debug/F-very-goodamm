@@ -3734,7 +3734,7 @@ async def cmd_info(
             is_gbanned=cache.is_gbanned(target_user.id),
         )
     except Exception as e:
-        await message.reply_text(f"❌ Info fetch mein error: {html_escape(str(e)[:200])}")
+        await message.reply_text(f"❌ Info error: {html_escape(str(e)[:200])}")
         return
 
     await message.reply_text(
@@ -4463,8 +4463,6 @@ async def post_init(application: Application) -> None:
     await section3_post_init(application)
     await section4_post_init(application)
     await section5_post_init(application)
-
-    # XP table for Section 13
     asyncio.create_task(_s13_create_xp_table())
 
     # Set bot commands
@@ -4624,7 +4622,7 @@ def register_handlers(application: Application) -> None:
         group=99,
     )
 
-    # ── SECTION 2: User Profiles, Warns, Private Notes, AFK ──
+    # ── SECTION 2: User, Warns, AFK, Private Notes ──
     register_section2_handlers(application)
 
     # ── SECTION 3: Welcome, Captcha, Anti-Raid ──
@@ -4642,13 +4640,13 @@ def register_handlers(application: Application) -> None:
     # ── SECTION 7: Fun & Games ──
     register_section7_handlers(application)
 
-    # ── SECTION 8-13: Tools, Group Settings, Stickers, XP ──
+    # ── SECTION 8-13: Tools, Stickers, XP, Owner ──
     register_section8_13_handlers(application)
 
     # ── Error handler ──
     application.add_error_handler(error_handler)
 
-    logger.info("✅ ALL Sections registered! Core+User+Welcome+Admin+Protection+Filters+Fun+Tools+XP")
+    logger.info("✅ ALL Sections registered!")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -23298,8 +23296,9 @@ async def fun_section_callback(update, context):
 
 
 
+
 # ═══════════════════════════════════════════════════════════════
-# MISSING DATA LISTS & COMMAND FUNCTIONS (ADDED FIX)
+# SECTION 7 - MISSING DATA & FUNCTIONS (FIX)
 # ═══════════════════════════════════════════════════════════════
 
 TRUTH_QUESTIONS = [
@@ -23318,24 +23317,34 @@ TRUTH_QUESTIONS = [
     "Sabse bura gift jo mila ho?",
     "Kisi ki burai peethe peechhe ki hai?",
     "Sabse zyada kise miss karte ho?",
+    "Aaj tak ka sabse bada regret?",
+    "Kya kabhi jhooth bolke kisi ko hurt kiya?",
+    "Sabse sharmindagi wala pal?",
+    "Kisi se baat karna band kiya hai bina bataye?",
+    "Apni life ka sabse bada secret?",
 ]
 
 DARE_CHALLENGES = [
     "Apna profile pic 1 ghante ke liye kisi funny photo se replace karo!",
     "Group mein ek shayari likho abhi!",
-    "Kisi bhi group member ko 'bhai/behen' bolke voice message bhejo!",
+    "Kisi bhi group member ko voice message bhejo!",
     "Apna favorite song ka first line type karo with emojis!",
-    "10 pushups karo aur proof bhejo! 💪",
+    "10 pushups karo aur proof bhejo!",
     "Group mein apna embarrassing photo bhejo!",
     "Kisi member ko compliment do publicly!",
     "Ab se 10 minutes tak sirf caps lock mein baat karo!",
     "Apna name ulta type karo!",
-    "Ek tongue twister likho aur bolne ki koshish karo!",
+    "Ek tongue twister likho!",
     "Group mein apna favorite meme share karo!",
     "Kisi ko 'you are amazing' wala message karo!",
     "Ek joke sunao jo genuinely funny ho!",
     "Apni current location ka weather share karo!",
-    "Ek naya emoji combination banao jo tera mood represent kare!",
+    "Ek naya emoji combination banao!",
+    "Kisi bhi member ke liye ek poem likho!",
+    "Group mein apna childhood photo bhejo!",
+    "5 minute ke liye sirf hindi mein baat karo!",
+    "Kisi member ko formal email style mein message karo!",
+    "Apne baare mein 5 fun facts batao!",
 ]
 
 EIGHTBALL_ANSWERS = [
@@ -23348,6 +23357,7 @@ EIGHTBALL_ANSWERS = [
     "🤔 Dubara poochho thodi der baad!",
     "🤔 Focus karo aur phir poochho!",
     "🤔 Response unclear hai!",
+    "🤔 Concentrate and ask again!",
     "❌ Nahi lagta...",
     "❌ Mera jawab nahi hai!",
     "❌ Don't count on it!",
@@ -23356,7 +23366,7 @@ EIGHTBALL_ANSWERS = [
 ]
 
 async def truth_command(update, context):
-    """Truth question command"""
+    """Truth question - /truth"""
     try:
         user = update.effective_user
         if not user:
@@ -23375,15 +23385,18 @@ async def truth_command(update, context):
             f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』"
         )
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔄 𝐍𝐞𝐰 𝐓𝐫𝐮𝐭𝐡", callback_data="fun_truth"),
+            InlineKeyboardButton("🔄 𝐍𝐞𝐰", callback_data="fun_truth"),
             InlineKeyboardButton("🎮 𝐌𝐞𝐧𝐮", callback_data="fun_menu"),
         ]])
         await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
     except Exception as e:
-        await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+        try:
+            await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+        except:
+            pass
 
 async def dare_command(update, context):
-    """Dare challenge command"""
+    """Dare challenge - /dare"""
     try:
         user = update.effective_user
         if not user:
@@ -23402,15 +23415,18 @@ async def dare_command(update, context):
             f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』"
         )
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔄 𝐍𝐞𝐰 𝐃𝐚𝐫𝐞", callback_data="fun_dare"),
+            InlineKeyboardButton("🔄 𝐍𝐞𝐰", callback_data="fun_dare"),
             InlineKeyboardButton("🎮 𝐌𝐞𝐧𝐮", callback_data="fun_menu"),
         ]])
         await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
     except Exception as e:
-        await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+        try:
+            await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+        except:
+            pass
 
 async def eightball_command(update, context):
-    """Magic 8 ball command"""
+    """Magic 8 ball - /8ball"""
     try:
         user = update.effective_user
         msg = update.effective_message
@@ -23420,7 +23436,10 @@ async def eightball_command(update, context):
         if not question and msg.reply_to_message and msg.reply_to_message.text:
             question = msg.reply_to_message.text
         if not question:
-            await msg.reply_text("❓ Koi sawaal poochho!\nExample: <code>/8ball Kya mujhe job milegi?</code>", parse_mode=ParseMode.HTML)
+            await msg.reply_text(
+                "❓ Koi sawaal poochho!\nExample: <code>/8ball Kya mujhe job milegi?</code>",
+                parse_mode=ParseMode.HTML
+            )
             return
         answer = random.choice(EIGHTBALL_ANSWERS)
         text = (
@@ -23437,10 +23456,13 @@ async def eightball_command(update, context):
         )
         await msg.reply_text(text, parse_mode=ParseMode.HTML)
     except Exception as e:
-        await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+        try:
+            await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+        except:
+            pass
 
 async def dice_command(update, context):
-    """Send animated dice"""
+    """Animated dice - /dice"""
     try:
         user = update.effective_user
         if not user:
@@ -23451,10 +23473,13 @@ async def dice_command(update, context):
         )
         await context.bot.send_dice(update.effective_chat.id)
     except Exception as e:
-        await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+        try:
+            await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+        except:
+            pass
 
 async def roll_command(update, context):
-    """Roll dice 1-6"""
+    """Roll 1-6 - /roll"""
     try:
         user = update.effective_user
         if not user:
@@ -23467,7 +23492,6 @@ async def roll_command(update, context):
             f"╔═══[ 🎲 𝐑𝐨𝐥𝐥 ]═══╗\n"
             f"║\n"
             f"║  👤 {mention_html(user.id, user.first_name)}\n"
-            f"║\n"
             f"║  🎲 Result: {faces[result-1]} ({result})\n"
             f"║\n"
             f"╚═══════════════════════╝\n"
@@ -23475,15 +23499,13 @@ async def roll_command(update, context):
         )
         await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
     except Exception as e:
-        await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
-
-
-# ═══════════════════════════════════════════════════════════════
-# SECTION 7 REGISTER FUNCTION
-# ═══════════════════════════════════════════════════════════════
+        try:
+            await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+        except:
+            pass
 
 def register_section7_handlers(application):
-    """Register all Section 7 fun & games handlers"""
+    """Register all Section 7 Fun & Games handlers"""
     application.add_handler(CommandHandler(["fun", "games"], fun_command))
     application.add_handler(CommandHandler("truth", truth_command))
     application.add_handler(CommandHandler("dare", dare_command))
@@ -23501,7 +23523,6 @@ def register_section7_handlers(application):
     application.add_handler(CallbackQueryHandler(fun_section_callback, pattern="^dare_accepted$"))
     application.add_handler(CallbackQueryHandler(trivia_answer_callback, pattern=r"^trivia_[ABCD]_"))
     logger.info("✅ Section 7: Fun & Games handlers registered!")
-
 
 # ╔══════════════════════════════════════════════════════════════╗
 # ║                                                              ║
