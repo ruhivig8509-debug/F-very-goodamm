@@ -4444,7 +4444,6 @@ class WebServer:
 # ◈ BOT INITIALIZATION & STARTUP
 # ═══════════════════════════════════════════════════════════════
 
-        
 # ═══════════════════════════════════════════════════════════════
 # ═══════════════════════════════════════════════════════════════
 #
@@ -25936,8 +25935,50 @@ def register_section8_13_handlers(application: "Application") -> None:
 # SECTION 8–13 COMPLETE ✅
 # ═══════════════════════════════════════════════════════════════
 
+
 # ═══════════════════════════════════════════════════════════════
-# SECTION 7 - MISSING FUNCTIONS (truth, dare, 8ball, dice, roll)
+# ◈ DB SAFETY: Auto-reconnect on every db call
+# ═══════════════════════════════════════════════════════════════
+# Monkey-patch DatabaseManager to never crash with None pool
+
+_orig_db_execute  = None
+_orig_db_fetch    = None
+_orig_db_fetchrow = None
+_orig_db_fetchval = None
+
+async def _safe_db_execute(self, query, *args):
+    if not self.pool or not self._ready:
+        await self.connect()
+    async with self.pool.acquire() as conn:
+        return await conn.execute(query, *args)
+
+async def _safe_db_fetch(self, query, *args):
+    if not self.pool or not self._ready:
+        await self.connect()
+    async with self.pool.acquire() as conn:
+        return await conn.fetch(query, *args)
+
+async def _safe_db_fetchrow(self, query, *args):
+    if not self.pool or not self._ready:
+        await self.connect()
+    async with self.pool.acquire() as conn:
+        return await conn.fetchrow(query, *args)
+
+async def _safe_db_fetchval(self, query, *args):
+    if not self.pool or not self._ready:
+        await self.connect()
+    async with self.pool.acquire() as conn:
+        return await conn.fetchval(query, *args)
+
+# Apply patches
+DatabaseManager.execute  = _safe_db_execute
+DatabaseManager.fetch    = _safe_db_fetch
+DatabaseManager.fetchrow = _safe_db_fetchrow
+DatabaseManager.fetchval = _safe_db_fetchval
+
+
+# ═══════════════════════════════════════════════════════════════
+# ◈ MISSING FUN FUNCTIONS
 # ═══════════════════════════════════════════════════════════════
 
 TRUTH_QUESTIONS = [
@@ -25951,29 +25992,29 @@ TRUTH_QUESTIONS = [
     "Life ka sabse embarrassing moment?",
     "Kisi ko bina wajah ignore kiya hai?",
     "Sabse ajeeb sapna jo dekha ho?",
-    "Kisi dost ke baare mein kya sochte ho jo unhe nahi bataya?",
     "Kabhi cheating ki hai exam mein?",
     "Aaj tak ka sabse bada regret?",
-    "Kya kabhi jhooth bolke kisi ko hurt kiya?",
     "Apni life ka sabse bada secret?",
+    "Sabse zyada kise miss karte ho?",
+    "Kya kabhi jhooth bolke kisi ko hurt kiya?",
 ]
 
 DARE_CHALLENGES = [
-    "Apna profile pic 1 ghante ke liye kisi funny photo se replace karo!",
+    "Apna profile pic 1 ghante ke liye funny photo se replace karo!",
     "Group mein ek shayari likho abhi!",
     "Kisi bhi group member ko voice message bhejo!",
     "Apna favorite song ka first line type karo with emojis!",
     "10 pushups karo aur proof bhejo!",
-    "Group mein apna embarrassing photo bhejo!",
     "Kisi member ko compliment do publicly!",
     "Ab se 10 minutes tak sirf caps lock mein baat karo!",
     "Apna name ulta type karo!",
-    "Ek tongue twister likho!",
-    "Group mein apna favorite meme share karo!",
     "Ek joke sunao jo genuinely funny ho!",
+    "Group mein apna favorite meme share karo!",
     "Apne baare mein 5 fun facts batao!",
     "Kisi member ke liye ek poem likho!",
     "5 minute ke liye sirf hindi mein baat karo!",
+    "Ek tongue twister type karo!",
+    "Kisi ko 'you are amazing' wala message karo!",
 ]
 
 EIGHTBALL_ANSWERS = [
@@ -25985,10 +26026,8 @@ EIGHTBALL_ANSWERS = [
     "🤔 Abhi clear nahi hai...",
     "🤔 Dubara poochho thodi der baad!",
     "🤔 Focus karo aur phir poochho!",
-    "🤔 Response unclear hai!",
     "❌ Nahi lagta...",
     "❌ Mera jawab nahi hai!",
-    "❌ Don't count on it!",
     "❌ Bilkul nahi!",
     "❌ Outlook not so good!",
 ]
@@ -25998,19 +26037,19 @@ async def truth_command(update, context):
         user = update.effective_user
         if not user: return
         q = random.choice(TRUTH_QUESTIONS)
-        text = (
-            f"✦ 𝐓𝐑𝐔𝐓𝐇 ✦\n━━━━━━━━━━━━━━━━━━\n"
-            f"╔═══[ 🔍 𝐓𝐫𝐮𝐭𝐡 ]═══╗\n║\n"
-            f"║  👤 {mention_html(user.id, user.first_name)}\n║\n"
-            f"║  ❓ {q}\n║\n"
-            f"╚═══════════════════════╝\n"
-            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』"
-        )
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("🔄 New", callback_data="fun_truth"),
             InlineKeyboardButton("🎮 Menu", callback_data="fun_menu"),
         ]])
-        await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        await update.effective_message.reply_text(
+            f"✦ 𝐓𝐑𝐔𝐓𝐇 ✦\n━━━━━━━━━━━━━━━━━━\n"
+            f"╔═══[ 🔍 Truth ]═══╗\n║\n"
+            f"║  👤 {mention_html(user.id, user.first_name)}\n║\n"
+            f"║  ❓ {q}\n║\n"
+            f"╚═══════════════════════╝\n"
+            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』",
+            parse_mode=ParseMode.HTML, reply_markup=kb
+        )
     except Exception as e:
         try: await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
         except: pass
@@ -26020,19 +26059,19 @@ async def dare_command(update, context):
         user = update.effective_user
         if not user: return
         d = random.choice(DARE_CHALLENGES)
-        text = (
-            f"✦ 𝐃𝐀𝐑𝐄 ✦\n━━━━━━━━━━━━━━━━━━\n"
-            f"╔═══[ 🔥 𝐃𝐚𝐫𝐞 ]═══╗\n║\n"
-            f"║  👤 {mention_html(user.id, user.first_name)}\n║\n"
-            f"║  ⚡ {d}\n║\n"
-            f"╚═══════════════════════╝\n"
-            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』"
-        )
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("🔄 New", callback_data="fun_dare"),
             InlineKeyboardButton("🎮 Menu", callback_data="fun_menu"),
         ]])
-        await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        await update.effective_message.reply_text(
+            f"✦ 𝐃𝐀𝐑𝐄 ✦\n━━━━━━━━━━━━━━━━━━\n"
+            f"╔═══[ 🔥 Dare ]═══╗\n║\n"
+            f"║  👤 {mention_html(user.id, user.first_name)}\n║\n"
+            f"║  ⚡ {d}\n║\n"
+            f"╚═══════════════════════╝\n"
+            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』",
+            parse_mode=ParseMode.HTML, reply_markup=kb
+        )
     except Exception as e:
         try: await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
         except: pass
@@ -26049,15 +26088,15 @@ async def eightball_command(update, context):
             await msg.reply_text("❓ Sawaal poochho!\nExample: <code>/8ball Kya job milegi?</code>", parse_mode=ParseMode.HTML)
             return
         ans = random.choice(EIGHTBALL_ANSWERS)
-        text = (
+        await msg.reply_text(
             f"✦ 𝟴𝐁𝐀𝐋𝐋 ✦\n━━━━━━━━━━━━━━━━━━\n"
-            f"╔═══[ 🎱 𝐌𝐚𝐠𝐢𝐜 𝟴 𝐁𝐚𝐥𝐥 ]═══╗\n║\n"
+            f"╔═══[ 🎱 Magic 8 Ball ]═══╗\n║\n"
             f"║  ❓ {html_escape(question[:200])}\n║\n"
             f"║  🎱 {ans}\n║\n"
             f"╚═══════════════════════╝\n"
-            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』"
+            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』",
+            parse_mode=ParseMode.HTML
         )
-        await msg.reply_text(text, parse_mode=ParseMode.HTML)
     except Exception as e:
         try: await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
         except: pass
@@ -26081,196 +26120,188 @@ async def roll_command(update, context):
         if not user: return
         result = random.randint(1, 6)
         faces = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣"]
-        text = (
+        await update.effective_message.reply_text(
             f"✦ 𝐃𝐈𝐂𝐄 𝐑𝐎𝐋𝐋 ✦\n━━━━━━━━━━━━━━━━━━\n"
-            f"╔═══[ 🎲 𝐑𝐨𝐥𝐥 ]═══╗\n║\n"
+            f"╔═══[ 🎲 Roll ]═══╗\n║\n"
             f"║  👤 {mention_html(user.id, user.first_name)}\n"
             f"║  🎲 Result: {faces[result-1]} ({result})\n║\n"
             f"╚═══════════════════════╝\n"
-            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』"
+            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』",
+            parse_mode=ParseMode.HTML
         )
-        await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
     except Exception as e:
         try: await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
         except: pass
 
 def register_section7_handlers(application):
-    """Register all Section 7 Fun & Games handlers"""
+    """Section 7: Fun & Games"""
     application.add_handler(CommandHandler(["fun", "games"], fun_command))
-    application.add_handler(CommandHandler("truth", truth_command))
-    application.add_handler(CommandHandler("dare", dare_command))
-    application.add_handler(CommandHandler(["8ball", "ball"], eightball_command))
-    application.add_handler(CommandHandler("dice", dice_command))
-    application.add_handler(CommandHandler("roll", roll_command))
-    application.add_handler(CommandHandler("flip", flip_command))
-    application.add_handler(CommandHandler("love", love_command))
-    application.add_handler(CommandHandler("roast", roast_command))
-    application.add_handler(CommandHandler("compliment", compliment_command))
-    application.add_handler(CommandHandler("joke", joke_command))
-    application.add_handler(CommandHandler("quote", quote_command))
-    application.add_handler(CommandHandler("trivia", trivia_command))
-    application.add_handler(CallbackQueryHandler(fun_section_callback, pattern="^fun_"))
-    application.add_handler(CallbackQueryHandler(fun_section_callback, pattern="^dare_accepted$"))
+    application.add_handler(CommandHandler("truth",           truth_command))
+    application.add_handler(CommandHandler("dare",            dare_command))
+    application.add_handler(CommandHandler(["8ball","ball"],  eightball_command))
+    application.add_handler(CommandHandler("dice",            dice_command))
+    application.add_handler(CommandHandler("roll",            roll_command))
+    application.add_handler(CommandHandler("flip",            flip_command))
+    application.add_handler(CommandHandler("love",            love_command))
+    application.add_handler(CommandHandler("roast",           roast_command))
+    application.add_handler(CommandHandler("compliment",      compliment_command))
+    application.add_handler(CommandHandler("joke",            joke_command))
+    application.add_handler(CommandHandler("quote",           quote_command))
+    application.add_handler(CommandHandler("trivia",          trivia_command))
+    application.add_handler(CallbackQueryHandler(fun_section_callback,   pattern="^fun_"))
+    application.add_handler(CallbackQueryHandler(fun_section_callback,   pattern="^dare_accepted$"))
     application.add_handler(CallbackQueryHandler(trivia_answer_callback, pattern=r"^trivia_[ABCD]_"))
-    logger.info("✅ Section 7: Fun & Games handlers registered!")
+    logger.info("✅ Section 7: Fun & Games registered!")
 
 
 # ═══════════════════════════════════════════════════════════════
-# ◈ POST INIT & SHUTDOWN
-# ═══════════════════════════════════════════════════════════════
-
-async def post_init(application: "Application") -> None:
-    """Post-initialization setup"""
-    logger.info("🔄 Running post-init setup...")
-
-    await db.connect()
-    await cache.load_from_db()
-
-    # Initialize all section tables
-    await section2_post_init(application)
-    await section3_post_init(application)
-    await section4_post_init(application)
-    await section5_post_init(application)
-    asyncio.create_task(_s13_create_xp_table())
-
-    # Set bot commands
-    try:
-        private_commands = [
-            BotCommand("start", "✦ Start the bot"),
-            BotCommand("help", "❓ Help menu"),
-            BotCommand("about", "ℹ️ About the bot"),
-            BotCommand("id", "🆔 Get your ID"),
-            BotCommand("info", "👤 User info"),
-            BotCommand("ping", "🏓 Check latency"),
-            BotCommand("alive", "💚 Bot status"),
-            BotCommand("stats", "📊 Statistics"),
-        ]
-        await application.bot.set_my_commands(
-            private_commands, scope=BotCommandScopeAllPrivateChats()
-        )
-        group_commands = [
-            BotCommand("start", "✦ Start"),
-            BotCommand("help", "❓ Help"),
-            BotCommand("id", "🆔 ID info"),
-            BotCommand("info", "👤 User info"),
-            BotCommand("rules", "📋 Group rules"),
-            BotCommand("adminlist", "👑 Admin list"),
-            BotCommand("pin", "📌 Pin message"),
-            BotCommand("ban", "🔨 Ban user"),
-            BotCommand("mute", "🔇 Mute user"),
-            BotCommand("warn", "⚠️ Warn user"),
-            BotCommand("notes", "📝 View notes"),
-            BotCommand("filters", "🔍 View filters"),
-            BotCommand("report", "📢 Report user"),
-        ]
-        await application.bot.set_my_commands(
-            group_commands, scope=BotCommandScopeAllGroupChats()
-        )
-        logger.info("✅ Bot commands set successfully!")
-    except Exception as e:
-        logger.error(f"Failed to set commands: {e}")
-
-    bot_me = await application.bot.get_me()
-    logger.info(f"✅ Bot started: @{bot_me.username} (ID: {bot_me.id})")
-
-    if LOG_CHANNEL_ID:
-        try:
-            startup_text = (
-                f"🚀 <b>Bot Started</b>\n"
-                f"{'─'*20}\n"
-                f"• Bot: @{bot_me.username}\n"
-                f"• Version: v{BOT_VERSION}\n"
-                f"• Mode: Webhook\n"
-                f"• Database: Connected\n"
-                f"• Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"✅ All systems operational"
-            )
-            await application.bot.send_message(
-                chat_id=LOG_CHANNEL_ID,
-                text=startup_text,
-                parse_mode=ParseMode.HTML,
-            )
-        except Exception as e:
-            logger.error(f"Failed to send startup log: {e}")
-
-
-async def post_shutdown(application: "Application") -> None:
-    """Clean up on shutdown"""
-    logger.info("🔄 Shutting down...")
-    await db.close()
-    logger.info("✅ Shutdown complete.")
-
-
-# ═══════════════════════════════════════════════════════════════
-# ◈ REGISTER ALL HANDLERS
+# ◈ REGISTER ALL HANDLERS  ← single place, all sections
 # ═══════════════════════════════════════════════════════════════
 
 def register_handlers(application: "Application") -> None:
-    """Register ALL command and message handlers from all sections"""
+    """Register ALL handlers — Sections 1 to 13"""
 
-    # ── SECTION 1: Core Commands ──
-    application.add_handler(CommandHandler("start", cmd_start))
-    application.add_handler(CommandHandler("help", cmd_help))
-    application.add_handler(CommandHandler("about", cmd_about))
-    application.add_handler(CommandHandler("alive", cmd_alive))
-    application.add_handler(CommandHandler("ping", cmd_ping))
-    application.add_handler(CommandHandler("id", cmd_id))
-    application.add_handler(CommandHandler("info", cmd_info))
-    application.add_handler(CommandHandler("stats", cmd_stats))
-    application.add_handler(CommandHandler("addsudo", cmd_addsudo))
-    application.add_handler(CommandHandler("rmsudo", cmd_rmsudo))
-    application.add_handler(CommandHandler("sudolist", cmd_sudolist))
-    application.add_handler(CommandHandler("addsupport", cmd_addsupport))
-    application.add_handler(CommandHandler("rmsupport", cmd_rmsupport))
+    # Section 1: Core
+    application.add_handler(CommandHandler("start",       cmd_start))
+    application.add_handler(CommandHandler("help",        cmd_help))
+    application.add_handler(CommandHandler("about",       cmd_about))
+    application.add_handler(CommandHandler("alive",       cmd_alive))
+    application.add_handler(CommandHandler("ping",        cmd_ping))
+    application.add_handler(CommandHandler("id",          cmd_id))
+    application.add_handler(CommandHandler("info",        cmd_info))
+    application.add_handler(CommandHandler("stats",       cmd_stats))
+    application.add_handler(CommandHandler("addsudo",     cmd_addsudo))
+    application.add_handler(CommandHandler("rmsudo",      cmd_rmsudo))
+    application.add_handler(CommandHandler("sudolist",    cmd_sudolist))
+    application.add_handler(CommandHandler("addsupport",  cmd_addsupport))
+    application.add_handler(CommandHandler("rmsupport",   cmd_rmsupport))
     application.add_handler(CommandHandler("supportlist", cmd_supportlist))
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(
         MessageHandler(filters.ALL & ~filters.COMMAND, track_user_chat), group=99
     )
 
-    # ── SECTION 2: User, Warns, AFK, Private Notes ──
+    # Section 2: User, Warns, AFK, Private Notes
     register_section2_handlers(application)
-
-    # ── SECTION 3: Welcome, Captcha, Anti-Raid ──
+    # Section 3: Welcome, Captcha, Anti-Raid
     register_section3_handlers(application)
-
-    # ── SECTION 4: Admin, Ban, Mute, Promote, Pin ──
+    # Section 4: Admin, Ban, Mute, Promote, Pin
     register_section4_handlers(application)
-
-    # ── SECTION 5: Protection, Blacklist, Approve ──
+    # Section 5: Protection, Blacklist, Approve
     register_section5_handlers(application)
-
-    # ── SECTION 6: Filters & Notes ──
+    # Section 6: Filters & Notes
     register_section6_handlers(application)
-
-    # ── SECTION 7: Fun & Games ──
+    # Section 7: Fun & Games
     register_section7_handlers(application)
-
-    # ── SECTION 8-13: Tools, Stickers, XP, Owner ──
+    # Section 8-13: Tools, Stickers, XP, Owner
     register_section8_13_handlers(application)
 
-    # ── Error handler ──
     application.add_error_handler(error_handler)
-
-    logger.info("✅ ALL Sections registered successfully!")
+    logger.info("✅ ALL handlers registered — Sections 1-13!")
 
 
 # ═══════════════════════════════════════════════════════════════
-# ◈ MAIN ENTRY POINT
+# ◈ POST INIT  ← runs after ApplicationBuilder.build()
+# ═══════════════════════════════════════════════════════════════
+
+async def post_init(application: "Application") -> None:
+    """Called by PTB after build() — connect DB and init all sections"""
+    logger.info("🔄 Running post-init...")
+
+    # 1. Connect DB (with retry built into db.connect)
+    try:
+        await db.connect()
+        logger.info("✅ DB connected in post_init")
+    except Exception as e:
+        logger.error(f"❌ DB connect failed in post_init: {e}")
+        # Don't raise — bot can still handle messages (DB ops will retry)
+
+    # 2. Load main cache
+    try:
+        await cache.load_from_db()
+    except Exception as e:
+        logger.error(f"Cache load error: {e}")
+
+    # 3. Init section tables
+    for name, fn in [
+        ("Section 2", section2_post_init),
+        ("Section 3", section3_post_init),
+        ("Section 4", section4_post_init),
+        ("Section 5", section5_post_init),
+    ]:
+        try:
+            await fn(application)
+            logger.info(f"✅ {name} initialized")
+        except Exception as e:
+            logger.error(f"❌ {name} post_init error: {e}")
+
+    # 4. XP table (Section 13)
+    asyncio.create_task(_s13_create_xp_table())
+
+    # 5. Set bot commands
+    try:
+        await application.bot.set_my_commands([
+            BotCommand("start",  "✦ Start the bot"),
+            BotCommand("help",   "❓ Help menu"),
+            BotCommand("id",     "🆔 Get your ID"),
+            BotCommand("info",   "👤 User info"),
+            BotCommand("ping",   "🏓 Check latency"),
+            BotCommand("alive",  "💚 Bot status"),
+        ], scope=BotCommandScopeAllPrivateChats())
+        await application.bot.set_my_commands([
+            BotCommand("ban",    "🔨 Ban user"),
+            BotCommand("mute",   "🔇 Mute user"),
+            BotCommand("warn",   "⚠️ Warn user"),
+            BotCommand("kick",   "👢 Kick user"),
+            BotCommand("pin",    "📌 Pin message"),
+            BotCommand("id",     "🆔 ID info"),
+            BotCommand("info",   "👤 User info"),
+            BotCommand("rules",  "📋 Group rules"),
+            BotCommand("notes",  "📝 View notes"),
+            BotCommand("filter", "🔍 View filters"),
+            BotCommand("report", "📢 Report user"),
+            BotCommand("help",   "❓ Help"),
+        ], scope=BotCommandScopeAllGroupChats())
+        logger.info("✅ Bot commands set!")
+    except Exception as e:
+        logger.error(f"Failed to set commands: {e}")
+
+    # 6. Startup log
+    try:
+        bot_me = await application.bot.get_me()
+        logger.info(f"✅ Bot: @{bot_me.username} ({bot_me.id})")
+        if LOG_CHANNEL_ID:
+            await application.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=(
+                    f"🚀 <b>Bot Started</b>\n"
+                    f"• @{bot_me.username}\n"
+                    f"• v{BOT_VERSION}\n"
+                    f"• DB: {'✅ Connected' if db._ready else '⚠️ Reconnecting...'}"
+                ),
+                parse_mode=ParseMode.HTML,
+            )
+    except Exception as e:
+        logger.error(f"Startup log error: {e}")
+
+
+async def post_shutdown(application: "Application") -> None:
+    logger.info("🔄 Shutting down...")
+    await db.close()
+    logger.info("✅ Shutdown complete.")
+
+
+# ═══════════════════════════════════════════════════════════════
+# ◈ MAIN
 # ═══════════════════════════════════════════════════════════════
 
 async def main() -> None:
-    """Main function - Start the bot"""
-
     if not BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN not set!")
-        sys.exit(1)
+        logger.error("❌ BOT_TOKEN not set!"); sys.exit(1)
     if not DATABASE_URL:
-        logger.error("❌ DATABASE_URL not set!")
-        sys.exit(1)
+        logger.error("❌ DATABASE_URL not set!"); sys.exit(1)
     if not OWNER_ID:
-        logger.error("❌ OWNER_ID not set!")
-        sys.exit(1)
+        logger.error("❌ OWNER_ID not set!"); sys.exit(1)
 
     application = (
         ApplicationBuilder()
@@ -26288,85 +26319,58 @@ async def main() -> None:
 
     if RENDER_EXTERNAL_URL:
         webhook_url = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
-        logger.info(f"🌐 Starting webhook: {webhook_url}")
-
+        logger.info(f"🌐 Webhook: {webhook_url}")
         await application.initialize()
         await application.start()
         await application.bot.set_webhook(
             url=webhook_url,
             secret_token=WEBHOOK_SECRET,
             allowed_updates=[
-                "message", "edited_message", "callback_query",
-                "chat_member", "my_chat_member", "inline_query",
-                "chosen_inline_result",
+                "message","edited_message","callback_query",
+                "chat_member","my_chat_member","inline_query","chosen_inline_result",
             ],
             drop_pending_updates=True,
         )
-        logger.info("✅ Webhook set successfully!")
+        logger.info("✅ Webhook set!")
 
         web_server = WebServer(application)
         runner = web.AppRunner(web_server.app)
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", PORT)
         await site.start()
-        logger.info(f"✅ Web server started on port {PORT}")
+        logger.info(f"✅ Web server on port {PORT}")
 
         stop_event = asyncio.Event()
-
         def handle_signal(sig):
-            logger.info(f"Received signal {sig}")
             stop_event.set()
-
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
-                loop.add_signal_handler(sig, handle_signal, sig)
-            except NotImplementedError:
-                pass
-
+            try: loop.add_signal_handler(sig, handle_signal, sig)
+            except NotImplementedError: pass
         await stop_event.wait()
 
-        logger.info("🔄 Stopping bot...")
         await application.bot.delete_webhook()
         await application.stop()
         await application.shutdown()
         await runner.cleanup()
-
     else:
-        logger.info("🔄 Starting in polling mode...")
+        logger.info("🔄 Polling mode...")
         await application.run_polling(
             drop_pending_updates=True,
-            allowed_updates=[
-                "message", "edited_message", "callback_query",
-                "chat_member", "my_chat_member",
-            ],
+            allowed_updates=["message","edited_message","callback_query","chat_member","my_chat_member"],
         )
 
 
 # ═══════════════════════════════════════════════════════════════
-# ◈ RUN
+# ◈ RUN  ←  MUST BE LAST LINE OF FILE
 # ═══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    logger.info(
-        f"""
-╔══════════════════════════════════════════╗
-║                                          ║
-║   ✦ {BOT_NAME} ✦
-║   ━━━━━━━━━━━━━━━━━━━━━━━                ║
-║                                          ║
-║   Version: v{BOT_VERSION}
-║   Owner: @{OWNER_USERNAME}
-║                                          ║
-║   Starting...                            ║
-║                                          ║
-╚══════════════════════════════════════════╝
-        """
-    )
+    logger.info(f"Starting {BOT_NAME} v{BOT_VERSION}...")
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Bot stopped by user.")
+        logger.info("Bot stopped.")
     except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
+        logger.error(f"Fatal: {e}", exc_info=True)
         sys.exit(1)
