@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: ruhi-assistant-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python Bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ruhi-bot-db
+          property: connectionString
+      - key: OWNER_ID
+        sync: false
+      - key: OWNER_USERNAME
+        value: RUHI_X_QNR
+      - key: LOG_CHANNEL_ID
+        sync: false
+      - key: SUPPORT_CHAT
+        sync: false
+      - key: UPDATES_CHANNEL
+        sync: false
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          type: web
+          name: ruhi-assistant-bot
+          property: host
+      - key: PORT
+        value: 10000
+      - key: SUDO_USERS
+        sync: false
+      - key: SUPPORT_USERS
+        sync: false
+
+databases:
+  - name: ruhi-bot-db
+    plan: free
+    databaseName: ruhi_bot
+    user: ruhi_bot_user
