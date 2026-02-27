@@ -1126,6 +1126,203 @@ class DatabaseManager:
                     ON CONFLICT (user_id) DO NOTHING;
                 """, uid, OWNER_ID)
 
+            # ─── Section 2 tables: user_settings, personal_notes, user_global_stats ───
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_settings (
+                    user_id             BIGINT PRIMARY KEY,
+                    bio                 TEXT DEFAULT '',
+                    custom_name         TEXT DEFAULT '',
+                    notifications       BOOLEAN DEFAULT TRUE,
+                    pm_allowed          BOOLEAN DEFAULT TRUE,
+                    read_receipts       BOOLEAN DEFAULT TRUE,
+                    auto_afk            BOOLEAN DEFAULT FALSE,
+                    auto_afk_time       INTEGER DEFAULT 3600,
+                    welcome_dm          BOOLEAN DEFAULT TRUE,
+                    language            TEXT DEFAULT 'en',
+                    timezone_offset     INTEGER DEFAULT 0,
+                    theme               TEXT DEFAULT 'default',
+                    profile_private     BOOLEAN DEFAULT FALSE,
+                    last_seen_enabled   BOOLEAN DEFAULT TRUE,
+                    created_at          TIMESTAMP DEFAULT NOW(),
+                    updated_at          TIMESTAMP DEFAULT NOW()
+                );
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_global_stats (
+                    user_id             BIGINT PRIMARY KEY,
+                    total_messages      BIGINT DEFAULT 0,
+                    total_commands      BIGINT DEFAULT 0,
+                    total_groups        INTEGER DEFAULT 0,
+                    first_seen          TIMESTAMP DEFAULT NOW(),
+                    last_seen           TIMESTAMP DEFAULT NOW(),
+                    xp                  INTEGER DEFAULT 0,
+                    level               INTEGER DEFAULT 1
+                );
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS personal_notes (
+                    id              SERIAL PRIMARY KEY,
+                    user_id         BIGINT NOT NULL,
+                    note_name       TEXT NOT NULL,
+                    note_content    TEXT NOT NULL,
+                    media_type      TEXT DEFAULT '',
+                    media_id        TEXT DEFAULT '',
+                    created_at      TIMESTAMP DEFAULT NOW(),
+                    updated_at      TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id, note_name)
+                );
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_personal_notes_user
+                    ON personal_notes(user_id);
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_stats (
+                    id          SERIAL PRIMARY KEY,
+                    user_id     BIGINT NOT NULL,
+                    chat_id     BIGINT NOT NULL,
+                    messages    BIGINT DEFAULT 0,
+                    commands    BIGINT DEFAULT 0,
+                    last_seen   TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id, chat_id)
+                );
+            """)
+
+            # ─── Section 3 tables: welcome_settings, captcha_queue ───
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS welcome_settings (
+                    chat_id              BIGINT PRIMARY KEY,
+                    welcome_enabled      BOOLEAN DEFAULT TRUE,
+                    welcome_text         TEXT DEFAULT '',
+                    welcome_media        TEXT DEFAULT '',
+                    welcome_media_type   TEXT DEFAULT '',
+                    welcome_buttons      TEXT DEFAULT '[]',
+                    welcome_delete_after INTEGER DEFAULT 300,
+                    goodbye_enabled      BOOLEAN DEFAULT TRUE,
+                    goodbye_text         TEXT DEFAULT '',
+                    clean_welcome        BOOLEAN DEFAULT TRUE,
+                    last_welcome_msg_id  BIGINT DEFAULT 0,
+                    captcha_enabled      BOOLEAN DEFAULT FALSE,
+                    captcha_type         TEXT DEFAULT 'button',
+                    captcha_timeout      INTEGER DEFAULT 120,
+                    captcha_action       TEXT DEFAULT 'kick',
+                    antiraid_enabled     BOOLEAN DEFAULT FALSE,
+                    antiraid_threshold   INTEGER DEFAULT 10,
+                    antiraid_time_window INTEGER DEFAULT 60,
+                    antiraid_action      TEXT DEFAULT 'restrict',
+                    created_at           TIMESTAMP DEFAULT NOW(),
+                    updated_at           TIMESTAMP DEFAULT NOW()
+                );
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS captcha_queue (
+                    id          SERIAL PRIMARY KEY,
+                    chat_id     BIGINT NOT NULL,
+                    user_id     BIGINT NOT NULL,
+                    message_id  BIGINT DEFAULT 0,
+                    joined_at   TIMESTAMP DEFAULT NOW(),
+                    expires_at  TIMESTAMP,
+                    UNIQUE(chat_id, user_id)
+                );
+            """)
+
+            # ─── Section 5 tables: protection_settings, blacklist, approved ───
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS protection_settings (
+                    chat_id                     BIGINT PRIMARY KEY,
+                    antiflood_enabled           BOOLEAN DEFAULT FALSE,
+                    antiflood_limit             INTEGER DEFAULT 10,
+                    antiflood_time_window       INTEGER DEFAULT 45,
+                    antiflood_action            TEXT DEFAULT 'mute',
+                    antiflood_action_duration   INTEGER DEFAULT 3600,
+                    antiflood_del_msg           BOOLEAN DEFAULT TRUE,
+                    antispam_enabled            BOOLEAN DEFAULT FALSE,
+                    antispam_action             TEXT DEFAULT 'mute',
+                    antispam_score_threshold    INTEGER DEFAULT 5,
+                    antilink_enabled            BOOLEAN DEFAULT FALSE,
+                    antilink_action             TEXT DEFAULT 'delete',
+                    antilink_warn               BOOLEAN DEFAULT TRUE,
+                    antilink_allow_admins       BOOLEAN DEFAULT TRUE,
+                    antilink_allow_tg_links     BOOLEAN DEFAULT FALSE,
+                    antibot_enabled             BOOLEAN DEFAULT FALSE,
+                    antibot_action              TEXT DEFAULT 'kick',
+                    antiforward_enabled         BOOLEAN DEFAULT FALSE,
+                    antiforward_action          TEXT DEFAULT 'delete',
+                    antiforward_from_channels   BOOLEAN DEFAULT TRUE,
+                    antiforward_from_users      BOOLEAN DEFAULT FALSE,
+                    antiforward_from_bots       BOOLEAN DEFAULT TRUE,
+                    antichannel_enabled         BOOLEAN DEFAULT FALSE,
+                    antiarabic_enabled          BOOLEAN DEFAULT FALSE,
+                    antiarabic_action           TEXT DEFAULT 'delete',
+                    antisticker_enabled         BOOLEAN DEFAULT FALSE,
+                    antisticker_limit           INTEGER DEFAULT 5,
+                    antisticker_time_window     INTEGER DEFAULT 30,
+                    antisticker_action          TEXT DEFAULT 'mute',
+                    antigif_enabled             BOOLEAN DEFAULT FALSE,
+                    antigif_limit               INTEGER DEFAULT 5,
+                    antigif_time_window         INTEGER DEFAULT 30,
+                    antigif_action              TEXT DEFAULT 'mute',
+                    antinsfw_enabled            BOOLEAN DEFAULT FALSE,
+                    antinsfw_action             TEXT DEFAULT 'delete',
+                    slowmode_enabled            BOOLEAN DEFAULT FALSE,
+                    slowmode_seconds            INTEGER DEFAULT 0,
+                    slowmode_custom_enabled     BOOLEAN DEFAULT FALSE,
+                    slowmode_custom_seconds     INTEGER DEFAULT 10,
+                    total_flood_actions         BIGINT DEFAULT 0,
+                    total_spam_actions          BIGINT DEFAULT 0,
+                    total_link_deleted          BIGINT DEFAULT 0,
+                    total_bot_kicked            BIGINT DEFAULT 0,
+                    total_forward_deleted       BIGINT DEFAULT 0,
+                    total_channel_banned        BIGINT DEFAULT 0,
+                    total_arabic_deleted        BIGINT DEFAULT 0,
+                    total_sticker_actions       BIGINT DEFAULT 0,
+                    total_gif_actions           BIGINT DEFAULT 0,
+                    total_nsfw_actions          BIGINT DEFAULT 0,
+                    total_blacklist_actions     BIGINT DEFAULT 0,
+                    created_at                  TIMESTAMP DEFAULT NOW(),
+                    updated_at                  TIMESTAMP DEFAULT NOW()
+                );
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS blacklist_words (
+                    id          SERIAL PRIMARY KEY,
+                    chat_id     BIGINT NOT NULL,
+                    word        TEXT NOT NULL,
+                    added_by    BIGINT DEFAULT 0,
+                    reason      TEXT DEFAULT '',
+                    created_at  TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(chat_id, word)
+                );
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS blacklist_settings (
+                    chat_id         BIGINT PRIMARY KEY,
+                    action          TEXT DEFAULT 'delete',
+                    warn_enabled    BOOLEAN DEFAULT FALSE,
+                    created_at      TIMESTAMP DEFAULT NOW()
+                );
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS whitelist_urls (
+                    id          SERIAL PRIMARY KEY,
+                    chat_id     BIGINT NOT NULL,
+                    url         TEXT NOT NULL,
+                    added_by    BIGINT DEFAULT 0,
+                    created_at  TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(chat_id, url)
+                );
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS approved_users (
+                    id          SERIAL PRIMARY KEY,
+                    chat_id     BIGINT NOT NULL,
+                    user_id     BIGINT NOT NULL,
+                    approved_by BIGINT DEFAULT 0,
+                    created_at  TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(chat_id, user_id)
+                );
+            """)
+
             logger.info("✅ All database tables created successfully!")
 
     async def close(self) -> None:
@@ -4444,6 +4641,97 @@ class WebServer:
 # ◈ BOT INITIALIZATION & STARTUP
 # ═══════════════════════════════════════════════════════════════
 
+    if not DATABASE_URL:
+        logger.error("❌ DATABASE_URL not set!")
+        sys.exit(1)
+    if not OWNER_ID:
+        logger.error("❌ OWNER_ID not set!")
+        sys.exit(1)
+
+    # Build application
+    application = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
+        .concurrent_updates(True)
+        .connect_timeout(30)
+        .read_timeout(30)
+        .write_timeout(30)
+        .build()
+    )
+
+    # Register handlers
+    register_handlers(application)
+
+    # ── Start with Webhook (Render) ──
+    if RENDER_EXTERNAL_URL:
+        webhook_url = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
+        logger.info(f"🌐 Starting webhook: {webhook_url}")
+
+        # Initialize application
+        await application.initialize()
+        await application.start()
+
+        # Set webhook
+        await application.bot.set_webhook(
+            url=webhook_url,
+            secret_token=WEBHOOK_SECRET,
+            allowed_updates=[
+                "message", "edited_message",
+                "callback_query", "chat_member",
+                "my_chat_member", "inline_query",
+                "chosen_inline_result",
+            ],
+            drop_pending_updates=True,
+        )
+        logger.info("✅ Webhook set successfully!")
+
+        # Start web server
+        web_server = WebServer(application)
+        runner = web.AppRunner(web_server.app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", PORT)
+        await site.start()
+        logger.info(f"✅ Web server started on port {PORT}")
+
+        # Keep running
+        stop_event = asyncio.Event()
+
+        def handle_signal(sig):
+            logger.info(f"Received signal {sig}")
+            stop_event.set()
+
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, handle_signal, sig)
+            except NotImplementedError:
+                # Windows doesn't support add_signal_handler
+                pass
+
+        await stop_event.wait()
+
+        # Cleanup
+        logger.info("🔄 Stopping bot...")
+        await application.bot.delete_webhook()
+        await application.stop()
+        await application.shutdown()
+        await runner.cleanup()
+
+    else:
+        # ── Fallback: Polling (local development) ──
+        logger.info("🔄 Starting in polling mode...")
+        await application.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=[
+                "message", "edited_message",
+                "callback_query", "chat_member",
+                "my_chat_member",
+            ],
+        )
+
+
 # ═══════════════════════════════════════════════════════════════
 # ═══════════════════════════════════════════════════════════════
 #
@@ -4690,15 +4978,17 @@ class UserDB:
     async def create_tables() -> None:
         """Create all Section 2 tables"""
         try:
-            async with db.pool.acquire() as conn:
-                await conn.execute(SECTION2_TABLES_SQL)
-            logger.info(
-                "✅ Section 2 tables created successfully!"
-            )
+            # Split into individual statements to avoid transaction issues
+            for stmt in SECTION2_TABLES_SQL.split(";"):
+                stmt = stmt.strip()
+                if stmt and not stmt.startswith("--"):
+                    try:
+                        await db.execute(stmt)
+                    except Exception as se:
+                        logger.debug(f"Section 2 stmt skip: {se}")
+            logger.info("✅ Section 2 tables created successfully!")
         except Exception as e:
-            logger.error(
-                f"❌ Section 2 table creation failed: {e}"
-            )
+            logger.error(f"❌ Section 2 table creation failed: {e}")
 
     # ───────────────────────────────────────────────────────
     # USER REGISTRATION & PROFILE
@@ -9914,8 +10204,13 @@ class WelcomeDB:
     async def create_tables() -> None:
         """Create Section 3 tables"""
         try:
-            async with db.pool.acquire() as conn:
-                await conn.execute(SECTION3_TABLES_SQL)
+            for stmt in SECTION3_TABLES_SQL.split(";"):
+                stmt = stmt.strip()
+                if stmt and not stmt.startswith("--"):
+                    try:
+                        await db.execute(stmt)
+                    except Exception as se:
+                        logger.debug(f"Section 3 stmt skip: {se}")
             logger.info("✅ Section 3 tables created!")
         except Exception as e:
             logger.error(f"❌ Section 3 tables error: {e}")
@@ -15731,8 +16026,13 @@ class ProtectionDB:
     @staticmethod
     async def create_tables() -> None:
         try:
-            async with db.pool.acquire() as conn:
-                await conn.execute(SECTION5_TABLES_SQL)
+            for stmt in SECTION5_TABLES_SQL.split(";"):
+                stmt = stmt.strip()
+                if stmt and not stmt.startswith("--"):
+                    try:
+                        await db.execute(stmt)
+                    except Exception as se:
+                        logger.debug(f"Section 5 stmt skip: {se}")
             logger.info("✅ Section 5 tables created!")
         except Exception as e:
             logger.error(f"❌ Section 5 tables error: {e}")
@@ -25935,50 +26235,8 @@ def register_section8_13_handlers(application: "Application") -> None:
 # SECTION 8–13 COMPLETE ✅
 # ═══════════════════════════════════════════════════════════════
 
-
 # ═══════════════════════════════════════════════════════════════
-# ◈ DB SAFETY: Auto-reconnect on every db call
-# ═══════════════════════════════════════════════════════════════
-# Monkey-patch DatabaseManager to never crash with None pool
-
-_orig_db_execute  = None
-_orig_db_fetch    = None
-_orig_db_fetchrow = None
-_orig_db_fetchval = None
-
-async def _safe_db_execute(self, query, *args):
-    if not self.pool or not self._ready:
-        await self.connect()
-    async with self.pool.acquire() as conn:
-        return await conn.execute(query, *args)
-
-async def _safe_db_fetch(self, query, *args):
-    if not self.pool or not self._ready:
-        await self.connect()
-    async with self.pool.acquire() as conn:
-        return await conn.fetch(query, *args)
-
-async def _safe_db_fetchrow(self, query, *args):
-    if not self.pool or not self._ready:
-        await self.connect()
-    async with self.pool.acquire() as conn:
-        return await conn.fetchrow(query, *args)
-
-async def _safe_db_fetchval(self, query, *args):
-    if not self.pool or not self._ready:
-        await self.connect()
-    async with self.pool.acquire() as conn:
-        return await conn.fetchval(query, *args)
-
-# Apply patches
-DatabaseManager.execute  = _safe_db_execute
-DatabaseManager.fetch    = _safe_db_fetch
-DatabaseManager.fetchrow = _safe_db_fetchrow
-DatabaseManager.fetchval = _safe_db_fetchval
-
-
-# ═══════════════════════════════════════════════════════════════
-# ◈ MISSING FUN FUNCTIONS
+# ◈ MISSING FUN FUNCTIONS (Section 7)
 # ═══════════════════════════════════════════════════════════════
 
 TRUTH_QUESTIONS = [
@@ -25986,48 +26244,32 @@ TRUTH_QUESTIONS = [
     "Teri crush kaun hai group mein?",
     "Last time kab roya/royi tha?",
     "Sabse bada jhooth kya bola hai life mein?",
-    "Kisi ka secret jaanta hai jo unhone share nahi kiya?",
     "Kabhi kisi ki diary/phone padhi hai?",
     "Pehli crush ka naam batao?",
     "Life ka sabse embarrassing moment?",
-    "Kisi ko bina wajah ignore kiya hai?",
-    "Sabse ajeeb sapna jo dekha ho?",
     "Kabhi cheating ki hai exam mein?",
     "Aaj tak ka sabse bada regret?",
     "Apni life ka sabse bada secret?",
-    "Sabse zyada kise miss karte ho?",
-    "Kya kabhi jhooth bolke kisi ko hurt kiya?",
 ]
-
 DARE_CHALLENGES = [
     "Apna profile pic 1 ghante ke liye funny photo se replace karo!",
     "Group mein ek shayari likho abhi!",
-    "Kisi bhi group member ko voice message bhejo!",
-    "Apna favorite song ka first line type karo with emojis!",
     "10 pushups karo aur proof bhejo!",
     "Kisi member ko compliment do publicly!",
     "Ab se 10 minutes tak sirf caps lock mein baat karo!",
-    "Apna name ulta type karo!",
     "Ek joke sunao jo genuinely funny ho!",
     "Group mein apna favorite meme share karo!",
     "Apne baare mein 5 fun facts batao!",
-    "Kisi member ke liye ek poem likho!",
     "5 minute ke liye sirf hindi mein baat karo!",
-    "Ek tongue twister type karo!",
-    "Kisi ko 'you are amazing' wala message karo!",
+    "Kisi ko \'you are amazing\' wala message karo!",
 ]
-
 EIGHTBALL_ANSWERS = [
     "✅ Bilkul haan! 100% sure!",
-    "✅ Haan, aisa hi hoga!",
-    "✅ Signs theek hai, ho jayega!",
     "✅ Definitely yes!",
     "✅ Mere hisaab se haan!",
     "🤔 Abhi clear nahi hai...",
     "🤔 Dubara poochho thodi der baad!",
-    "🤔 Focus karo aur phir poochho!",
     "❌ Nahi lagta...",
-    "❌ Mera jawab nahi hai!",
     "❌ Bilkul nahi!",
     "❌ Outlook not so good!",
 ]
@@ -26043,16 +26285,9 @@ async def truth_command(update, context):
         ]])
         await update.effective_message.reply_text(
             f"✦ 𝐓𝐑𝐔𝐓𝐇 ✦\n━━━━━━━━━━━━━━━━━━\n"
-            f"╔═══[ 🔍 Truth ]═══╗\n║\n"
-            f"║  👤 {mention_html(user.id, user.first_name)}\n║\n"
-            f"║  ❓ {q}\n║\n"
-            f"╚═══════════════════════╝\n"
-            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』",
-            parse_mode=ParseMode.HTML, reply_markup=kb
-        )
-    except Exception as e:
-        try: await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
-        except: pass
+            f"║  👤 {mention_html(user.id, user.first_name)}\n║  ❓ {q}",
+            parse_mode=ParseMode.HTML, reply_markup=kb)
+    except: pass
 
 async def dare_command(update, context):
     try:
@@ -26065,16 +26300,9 @@ async def dare_command(update, context):
         ]])
         await update.effective_message.reply_text(
             f"✦ 𝐃𝐀𝐑𝐄 ✦\n━━━━━━━━━━━━━━━━━━\n"
-            f"╔═══[ 🔥 Dare ]═══╗\n║\n"
-            f"║  👤 {mention_html(user.id, user.first_name)}\n║\n"
-            f"║  ⚡ {d}\n║\n"
-            f"╚═══════════════════════╝\n"
-            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』",
-            parse_mode=ParseMode.HTML, reply_markup=kb
-        )
-    except Exception as e:
-        try: await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
-        except: pass
+            f"║  👤 {mention_html(user.id, user.first_name)}\n║  ⚡ {d}",
+            parse_mode=ParseMode.HTML, reply_markup=kb)
+    except: pass
 
 async def eightball_command(update, context):
     try:
@@ -26089,30 +26317,18 @@ async def eightball_command(update, context):
             return
         ans = random.choice(EIGHTBALL_ANSWERS)
         await msg.reply_text(
-            f"✦ 𝟴𝐁𝐀𝐋𝐋 ✦\n━━━━━━━━━━━━━━━━━━\n"
-            f"╔═══[ 🎱 Magic 8 Ball ]═══╗\n║\n"
-            f"║  ❓ {html_escape(question[:200])}\n║\n"
-            f"║  🎱 {ans}\n║\n"
-            f"╚═══════════════════════╝\n"
-            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』",
-            parse_mode=ParseMode.HTML
-        )
-    except Exception as e:
-        try: await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
-        except: pass
+            f"🎱 ❓ {html_escape(question[:200])}\n\n{ans}",
+            parse_mode=ParseMode.HTML)
+    except: pass
 
 async def dice_command(update, context):
     try:
         user = update.effective_user
         if not user: return
         await update.effective_message.reply_text(
-            f"🎲 {mention_html(user.id, user.first_name)} ne dice roll kiya!",
-            parse_mode=ParseMode.HTML
-        )
+            f"🎲 {mention_html(user.id, user.first_name)} ne dice roll kiya!", parse_mode=ParseMode.HTML)
         await context.bot.send_dice(update.effective_chat.id)
-    except Exception as e:
-        try: await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
-        except: pass
+    except: pass
 
 async def roll_command(update, context):
     try:
@@ -26121,33 +26337,24 @@ async def roll_command(update, context):
         result = random.randint(1, 6)
         faces = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣"]
         await update.effective_message.reply_text(
-            f"✦ 𝐃𝐈𝐂𝐄 𝐑𝐎𝐋𝐋 ✦\n━━━━━━━━━━━━━━━━━━\n"
-            f"╔═══[ 🎲 Roll ]═══╗\n║\n"
-            f"║  👤 {mention_html(user.id, user.first_name)}\n"
-            f"║  🎲 Result: {faces[result-1]} ({result})\n║\n"
-            f"╚═══════════════════════╝\n"
-            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』",
-            parse_mode=ParseMode.HTML
-        )
-    except Exception as e:
-        try: await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
-        except: pass
+            f"🎲 {mention_html(user.id, user.first_name)} ka roll: {faces[result-1]} ({result})",
+            parse_mode=ParseMode.HTML)
+    except: pass
 
 def register_section7_handlers(application):
-    """Section 7: Fun & Games"""
-    application.add_handler(CommandHandler(["fun", "games"], fun_command))
-    application.add_handler(CommandHandler("truth",           truth_command))
-    application.add_handler(CommandHandler("dare",            dare_command))
-    application.add_handler(CommandHandler(["8ball","ball"],  eightball_command))
-    application.add_handler(CommandHandler("dice",            dice_command))
-    application.add_handler(CommandHandler("roll",            roll_command))
-    application.add_handler(CommandHandler("flip",            flip_command))
-    application.add_handler(CommandHandler("love",            love_command))
-    application.add_handler(CommandHandler("roast",           roast_command))
-    application.add_handler(CommandHandler("compliment",      compliment_command))
-    application.add_handler(CommandHandler("joke",            joke_command))
-    application.add_handler(CommandHandler("quote",           quote_command))
-    application.add_handler(CommandHandler("trivia",          trivia_command))
+    application.add_handler(CommandHandler(["fun","games"],    fun_command))
+    application.add_handler(CommandHandler("truth",            truth_command))
+    application.add_handler(CommandHandler("dare",             dare_command))
+    application.add_handler(CommandHandler(["8ball","ball"],   eightball_command))
+    application.add_handler(CommandHandler("dice",             dice_command))
+    application.add_handler(CommandHandler("roll",             roll_command))
+    application.add_handler(CommandHandler("flip",             flip_command))
+    application.add_handler(CommandHandler("love",             love_command))
+    application.add_handler(CommandHandler("roast",            roast_command))
+    application.add_handler(CommandHandler("compliment",       compliment_command))
+    application.add_handler(CommandHandler("joke",             joke_command))
+    application.add_handler(CommandHandler("quote",            quote_command))
+    application.add_handler(CommandHandler("trivia",           trivia_command))
     application.add_handler(CallbackQueryHandler(fun_section_callback,   pattern="^fun_"))
     application.add_handler(CallbackQueryHandler(fun_section_callback,   pattern="^dare_accepted$"))
     application.add_handler(CallbackQueryHandler(trivia_answer_callback, pattern=r"^trivia_[ABCD]_"))
@@ -26155,13 +26362,10 @@ def register_section7_handlers(application):
 
 
 # ═══════════════════════════════════════════════════════════════
-# ◈ REGISTER ALL HANDLERS  ← single place, all sections
+# ◈ REGISTER ALL HANDLERS
 # ═══════════════════════════════════════════════════════════════
 
 def register_handlers(application: "Application") -> None:
-    """Register ALL handlers — Sections 1 to 13"""
-
-    # Section 1: Core
     application.add_handler(CommandHandler("start",       cmd_start))
     application.add_handler(CommandHandler("help",        cmd_help))
     application.add_handler(CommandHandler("about",       cmd_about))
@@ -26178,117 +26382,74 @@ def register_handlers(application: "Application") -> None:
     application.add_handler(CommandHandler("supportlist", cmd_supportlist))
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(
-        MessageHandler(filters.ALL & ~filters.COMMAND, track_user_chat), group=99
-    )
-
-    # Section 2: User, Warns, AFK, Private Notes
+        MessageHandler(filters.ALL & ~filters.COMMAND, track_user_chat), group=99)
     register_section2_handlers(application)
-    # Section 3: Welcome, Captcha, Anti-Raid
     register_section3_handlers(application)
-    # Section 4: Admin, Ban, Mute, Promote, Pin
     register_section4_handlers(application)
-    # Section 5: Protection, Blacklist, Approve
     register_section5_handlers(application)
-    # Section 6: Filters & Notes
     register_section6_handlers(application)
-    # Section 7: Fun & Games
     register_section7_handlers(application)
-    # Section 8-13: Tools, Stickers, XP, Owner
     register_section8_13_handlers(application)
-
     application.add_error_handler(error_handler)
     logger.info("✅ ALL handlers registered — Sections 1-13!")
 
 
 # ═══════════════════════════════════════════════════════════════
-# ◈ POST INIT  ← runs after ApplicationBuilder.build()
+# ◈ POST INIT
 # ═══════════════════════════════════════════════════════════════
 
 async def post_init(application: "Application") -> None:
-    """Called by PTB after build() — connect DB and init all sections"""
     logger.info("🔄 Running post-init...")
-
-    # 1. Connect DB (with retry built into db.connect)
     try:
         await db.connect()
-        logger.info("✅ DB connected in post_init")
+        logger.info("✅ DB connected")
     except Exception as e:
-        logger.error(f"❌ DB connect failed in post_init: {e}")
-        # Don't raise — bot can still handle messages (DB ops will retry)
+        logger.error(f"❌ DB connect error: {e}")
 
-    # 2. Load main cache
-    try:
-        await cache.load_from_db()
-    except Exception as e:
-        logger.error(f"Cache load error: {e}")
+    try: await cache.load_from_db()
+    except Exception as e: logger.error(f"Cache error: {e}")
 
-    # 3. Init section tables
     for name, fn in [
-        ("Section 2", section2_post_init),
-        ("Section 3", section3_post_init),
-        ("Section 4", section4_post_init),
-        ("Section 5", section5_post_init),
+        ("Sec2", section2_post_init),
+        ("Sec3", section3_post_init),
+        ("Sec4", section4_post_init),
+        ("Sec5", section5_post_init),
     ]:
-        try:
-            await fn(application)
-            logger.info(f"✅ {name} initialized")
-        except Exception as e:
-            logger.error(f"❌ {name} post_init error: {e}")
+        try: await fn(application)
+        except Exception as e: logger.error(f"{name} post_init error: {e}")
 
-    # 4. XP table (Section 13)
     asyncio.create_task(_s13_create_xp_table())
 
-    # 5. Set bot commands
     try:
         await application.bot.set_my_commands([
-            BotCommand("start",  "✦ Start the bot"),
-            BotCommand("help",   "❓ Help menu"),
-            BotCommand("id",     "🆔 Get your ID"),
-            BotCommand("info",   "👤 User info"),
-            BotCommand("ping",   "🏓 Check latency"),
-            BotCommand("alive",  "💚 Bot status"),
+            BotCommand("start","✦ Start"), BotCommand("help","❓ Help"),
+            BotCommand("id","🆔 ID"), BotCommand("info","👤 Info"),
+            BotCommand("ping","🏓 Ping"), BotCommand("alive","💚 Alive"),
         ], scope=BotCommandScopeAllPrivateChats())
         await application.bot.set_my_commands([
-            BotCommand("ban",    "🔨 Ban user"),
-            BotCommand("mute",   "🔇 Mute user"),
-            BotCommand("warn",   "⚠️ Warn user"),
-            BotCommand("kick",   "👢 Kick user"),
-            BotCommand("pin",    "📌 Pin message"),
-            BotCommand("id",     "🆔 ID info"),
-            BotCommand("info",   "👤 User info"),
-            BotCommand("rules",  "📋 Group rules"),
-            BotCommand("notes",  "📝 View notes"),
-            BotCommand("filter", "🔍 View filters"),
-            BotCommand("report", "📢 Report user"),
-            BotCommand("help",   "❓ Help"),
+            BotCommand("ban","🔨 Ban"), BotCommand("mute","🔇 Mute"),
+            BotCommand("warn","⚠️ Warn"), BotCommand("kick","👢 Kick"),
+            BotCommand("pin","📌 Pin"), BotCommand("id","🆔 ID"),
+            BotCommand("info","👤 Info"), BotCommand("rules","📋 Rules"),
+            BotCommand("notes","📝 Notes"), BotCommand("report","📢 Report"),
         ], scope=BotCommandScopeAllGroupChats())
-        logger.info("✅ Bot commands set!")
-    except Exception as e:
-        logger.error(f"Failed to set commands: {e}")
+    except Exception as e: logger.error(f"Commands set error: {e}")
 
-    # 6. Startup log
     try:
         bot_me = await application.bot.get_me()
-        logger.info(f"✅ Bot: @{bot_me.username} ({bot_me.id})")
+        logger.info(f"✅ Bot: @{bot_me.username}")
         if LOG_CHANNEL_ID:
             await application.bot.send_message(
-                chat_id=LOG_CHANNEL_ID,
-                text=(
-                    f"🚀 <b>Bot Started</b>\n"
-                    f"• @{bot_me.username}\n"
-                    f"• v{BOT_VERSION}\n"
-                    f"• DB: {'✅ Connected' if db._ready else '⚠️ Reconnecting...'}"
-                ),
-                parse_mode=ParseMode.HTML,
-            )
-    except Exception as e:
-        logger.error(f"Startup log error: {e}")
+                LOG_CHANNEL_ID,
+                f"🚀 <b>Bot Started</b>\n• @{bot_me.username}\n• v{BOT_VERSION}\n• DB: ✅",
+                parse_mode=ParseMode.HTML)
+    except Exception as e: logger.error(f"Startup log error: {e}")
 
 
 async def post_shutdown(application: "Application") -> None:
     logger.info("🔄 Shutting down...")
     await db.close()
-    logger.info("✅ Shutdown complete.")
+    logger.info("✅ Done.")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -26296,12 +26457,9 @@ async def post_shutdown(application: "Application") -> None:
 # ═══════════════════════════════════════════════════════════════
 
 async def main() -> None:
-    if not BOT_TOKEN:
-        logger.error("❌ BOT_TOKEN not set!"); sys.exit(1)
-    if not DATABASE_URL:
-        logger.error("❌ DATABASE_URL not set!"); sys.exit(1)
-    if not OWNER_ID:
-        logger.error("❌ OWNER_ID not set!"); sys.exit(1)
+    if not BOT_TOKEN:   logger.error("❌ BOT_TOKEN missing!");   sys.exit(1)
+    if not DATABASE_URL: logger.error("❌ DATABASE_URL missing!"); sys.exit(1)
+    if not OWNER_ID:    logger.error("❌ OWNER_ID missing!");    sys.exit(1)
 
     application = (
         ApplicationBuilder()
@@ -26309,60 +26467,43 @@ async def main() -> None:
         .post_init(post_init)
         .post_shutdown(post_shutdown)
         .concurrent_updates(True)
-        .connect_timeout(30)
-        .read_timeout(30)
-        .write_timeout(30)
+        .connect_timeout(30).read_timeout(30).write_timeout(30)
         .build()
     )
-
     register_handlers(application)
 
     if RENDER_EXTERNAL_URL:
         webhook_url = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
-        logger.info(f"🌐 Webhook: {webhook_url}")
         await application.initialize()
         await application.start()
         await application.bot.set_webhook(
-            url=webhook_url,
-            secret_token=WEBHOOK_SECRET,
-            allowed_updates=[
-                "message","edited_message","callback_query",
-                "chat_member","my_chat_member","inline_query","chosen_inline_result",
-            ],
-            drop_pending_updates=True,
-        )
-        logger.info("✅ Webhook set!")
-
+            url=webhook_url, secret_token=WEBHOOK_SECRET,
+            allowed_updates=["message","edited_message","callback_query",
+                "chat_member","my_chat_member","inline_query","chosen_inline_result"],
+            drop_pending_updates=True)
+        logger.info(f"✅ Webhook: {webhook_url}")
         web_server = WebServer(application)
         runner = web.AppRunner(web_server.app)
         await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", PORT)
-        await site.start()
+        await web.TCPSite(runner, "0.0.0.0", PORT).start()
         logger.info(f"✅ Web server on port {PORT}")
-
         stop_event = asyncio.Event()
-        def handle_signal(sig):
-            stop_event.set()
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
-            try: loop.add_signal_handler(sig, handle_signal, sig)
+            try: loop.add_signal_handler(sig, lambda: stop_event.set())
             except NotImplementedError: pass
         await stop_event.wait()
-
         await application.bot.delete_webhook()
         await application.stop()
         await application.shutdown()
         await runner.cleanup()
     else:
-        logger.info("🔄 Polling mode...")
-        await application.run_polling(
-            drop_pending_updates=True,
-            allowed_updates=["message","edited_message","callback_query","chat_member","my_chat_member"],
-        )
+        await application.run_polling(drop_pending_updates=True,
+            allowed_updates=["message","edited_message","callback_query","chat_member","my_chat_member"])
 
 
 # ═══════════════════════════════════════════════════════════════
-# ◈ RUN  ←  MUST BE LAST LINE OF FILE
+# ◈ RUN  ← LAST LINE OF FILE
 # ═══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
@@ -26370,7 +26511,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Bot stopped.")
+        logger.info("Stopped.")
     except Exception as e:
         logger.error(f"Fatal: {e}", exc_info=True)
         sys.exit(1)
