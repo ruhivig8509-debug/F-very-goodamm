@@ -3716,19 +3716,26 @@ async def cmd_info(
             pass
 
     # Get DB user
-    db_user = await db.get_user(target_user.id)
-    db_user_dict = dict(db_user) if db_user else None
+    try:
+        db_user = await db.get_user(target_user.id)
+        db_user_dict = dict(db_user) if db_user else None
+    except Exception:
+        db_user_dict = None
 
-    text = Templates.user_info_message(
-        user=target_user,
-        db_user=db_user_dict,
-        chat=chat,
-        member=member,
-        is_owner=cache.is_owner(target_user.id),
-        is_sudo=cache.is_sudo(target_user.id),
-        is_support=cache.is_support(target_user.id),
-        is_gbanned=cache.is_gbanned(target_user.id),
-    )
+    try:
+        text = Templates.user_info_message(
+            user=target_user,
+            db_user=db_user_dict,
+            chat=chat,
+            member=member,
+            is_owner=cache.is_owner(target_user.id),
+            is_sudo=cache.is_sudo(target_user.id),
+            is_support=cache.is_support(target_user.id),
+            is_gbanned=cache.is_gbanned(target_user.id),
+        )
+    except Exception as e:
+        await message.reply_text(f"❌ Info fetch mein error: {html_escape(str(e)[:200])}")
+        return
 
     await message.reply_text(
         text=text,
@@ -4451,6 +4458,15 @@ async def post_init(application: Application) -> None:
     # Load cache
     await cache.load_from_db()
 
+    # Initialize all sections
+    await section2_post_init(application)
+    await section3_post_init(application)
+    await section4_post_init(application)
+    await section5_post_init(application)
+
+    # XP table for Section 13
+    asyncio.create_task(_s13_create_xp_table())
+
     # Set bot commands
     try:
         # Private chat commands
@@ -4608,13 +4624,31 @@ def register_handlers(application: Application) -> None:
         group=99,
     )
 
+    # ── SECTION 2: User Profiles, Warns, Private Notes, AFK ──
+    register_section2_handlers(application)
+
+    # ── SECTION 3: Welcome, Captcha, Anti-Raid ──
+    register_section3_handlers(application)
+
+    # ── SECTION 4: Admin, Ban, Mute, Promote, Pin ──
+    register_section4_handlers(application)
+
+    # ── SECTION 5: Protection, Blacklist, Approve ──
+    register_section5_handlers(application)
+
+    # ── SECTION 6: Filters & Notes ──
+    register_section6_handlers(application)
+
+    # ── SECTION 7: Fun & Games ──
+    register_section7_handlers(application)
+
+    # ── SECTION 8-13: Tools, Group Settings, Stickers, XP ──
+    register_section8_13_handlers(application)
+
     # ── Error handler ──
     application.add_error_handler(error_handler)
 
-    logger.info(
-        f"✅ Section 1 handlers registered: "
-        f"Core System & Setup"
-    )
+    logger.info("✅ ALL Sections registered! Core+User+Welcome+Admin+Protection+Filters+Fun+Tools+XP")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -23262,6 +23296,211 @@ async def fun_section_callback(update, context):
 #   ✅ Roast/Compliment — reply support (kisi ko target kar sakte ho)
 # ============================================================
 
+
+
+# ═══════════════════════════════════════════════════════════════
+# MISSING DATA LISTS & COMMAND FUNCTIONS (ADDED FIX)
+# ═══════════════════════════════════════════════════════════════
+
+TRUTH_QUESTIONS = [
+    "Kabhi kisi ko bina bole pasand kiya hai?",
+    "Teri crush kaun hai group mein?",
+    "Last time kab roya/royi tha?",
+    "Sabse bada jhooth kya bola hai life mein?",
+    "Kisi ka secret jaanta hai jo unhone share nahi kiya?",
+    "Kabhi kisi ki diary/phone padhi hai?",
+    "Pehli crush ka naam batao?",
+    "Life ka sabse embarrassing moment?",
+    "Kisi ko bina wajah ignore kiya hai?",
+    "Sabse ajeeb sapna jo dekha ho?",
+    "Kisi dost ke baare mein kya sochte ho jo unhe nahi bataya?",
+    "Kabhi cheating ki hai exam mein?",
+    "Sabse bura gift jo mila ho?",
+    "Kisi ki burai peethe peechhe ki hai?",
+    "Sabse zyada kise miss karte ho?",
+]
+
+DARE_CHALLENGES = [
+    "Apna profile pic 1 ghante ke liye kisi funny photo se replace karo!",
+    "Group mein ek shayari likho abhi!",
+    "Kisi bhi group member ko 'bhai/behen' bolke voice message bhejo!",
+    "Apna favorite song ka first line type karo with emojis!",
+    "10 pushups karo aur proof bhejo! 💪",
+    "Group mein apna embarrassing photo bhejo!",
+    "Kisi member ko compliment do publicly!",
+    "Ab se 10 minutes tak sirf caps lock mein baat karo!",
+    "Apna name ulta type karo!",
+    "Ek tongue twister likho aur bolne ki koshish karo!",
+    "Group mein apna favorite meme share karo!",
+    "Kisi ko 'you are amazing' wala message karo!",
+    "Ek joke sunao jo genuinely funny ho!",
+    "Apni current location ka weather share karo!",
+    "Ek naya emoji combination banao jo tera mood represent kare!",
+]
+
+EIGHTBALL_ANSWERS = [
+    "✅ Bilkul haan! 100% sure!",
+    "✅ Haan, aisa hi hoga!",
+    "✅ Signs theek hai, ho jayega!",
+    "✅ Definitely yes!",
+    "✅ Mere hisaab se haan!",
+    "🤔 Abhi clear nahi hai...",
+    "🤔 Dubara poochho thodi der baad!",
+    "🤔 Focus karo aur phir poochho!",
+    "🤔 Response unclear hai!",
+    "❌ Nahi lagta...",
+    "❌ Mera jawab nahi hai!",
+    "❌ Don't count on it!",
+    "❌ Bilkul nahi!",
+    "❌ Outlook not so good!",
+]
+
+async def truth_command(update, context):
+    """Truth question command"""
+    try:
+        user = update.effective_user
+        if not user:
+            return
+        question = random.choice(TRUTH_QUESTIONS)
+        text = (
+            f"✦ 𝐓𝐑𝐔𝐓𝐇 ✦\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"╔═══[ 🔍 𝐓𝐫𝐮𝐭𝐡 ]═══╗\n"
+            f"║\n"
+            f"║  👤 {mention_html(user.id, user.first_name)}\n"
+            f"║\n"
+            f"║  ❓ {question}\n"
+            f"║\n"
+            f"╚═══════════════════════╝\n"
+            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』"
+        )
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔄 𝐍𝐞𝐰 𝐓𝐫𝐮𝐭𝐡", callback_data="fun_truth"),
+            InlineKeyboardButton("🎮 𝐌𝐞𝐧𝐮", callback_data="fun_menu"),
+        ]])
+        await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    except Exception as e:
+        await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+
+async def dare_command(update, context):
+    """Dare challenge command"""
+    try:
+        user = update.effective_user
+        if not user:
+            return
+        dare = random.choice(DARE_CHALLENGES)
+        text = (
+            f"✦ 𝐃𝐀𝐑𝐄 ✦\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"╔═══[ 🔥 𝐃𝐚𝐫𝐞 ]═══╗\n"
+            f"║\n"
+            f"║  👤 {mention_html(user.id, user.first_name)}\n"
+            f"║\n"
+            f"║  ⚡ {dare}\n"
+            f"║\n"
+            f"╚═══════════════════════╝\n"
+            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』"
+        )
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔄 𝐍𝐞𝐰 𝐃𝐚𝐫𝐞", callback_data="fun_dare"),
+            InlineKeyboardButton("🎮 𝐌𝐞𝐧𝐮", callback_data="fun_menu"),
+        ]])
+        await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    except Exception as e:
+        await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+
+async def eightball_command(update, context):
+    """Magic 8 ball command"""
+    try:
+        user = update.effective_user
+        msg = update.effective_message
+        if not user or not msg:
+            return
+        question = " ".join(context.args) if context.args else ""
+        if not question and msg.reply_to_message and msg.reply_to_message.text:
+            question = msg.reply_to_message.text
+        if not question:
+            await msg.reply_text("❓ Koi sawaal poochho!\nExample: <code>/8ball Kya mujhe job milegi?</code>", parse_mode=ParseMode.HTML)
+            return
+        answer = random.choice(EIGHTBALL_ANSWERS)
+        text = (
+            f"✦ 𝟴𝐁𝐀𝐋𝐋 ✦\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"╔═══[ 🎱 𝐌𝐚𝐠𝐢𝐜 𝟴 𝐁𝐚𝐥𝐥 ]═══╗\n"
+            f"║\n"
+            f"║  ❓ {html_escape(question[:200])}\n"
+            f"║\n"
+            f"║  🎱 {answer}\n"
+            f"║\n"
+            f"╚═══════════════════════╝\n"
+            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』"
+        )
+        await msg.reply_text(text, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+
+async def dice_command(update, context):
+    """Send animated dice"""
+    try:
+        user = update.effective_user
+        if not user:
+            return
+        await update.effective_message.reply_text(
+            f"🎲 {mention_html(user.id, user.first_name)} ne dice roll kiya!",
+            parse_mode=ParseMode.HTML
+        )
+        await context.bot.send_dice(update.effective_chat.id)
+    except Exception as e:
+        await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+
+async def roll_command(update, context):
+    """Roll dice 1-6"""
+    try:
+        user = update.effective_user
+        if not user:
+            return
+        result = random.randint(1, 6)
+        faces = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣"]
+        text = (
+            f"✦ 𝐃𝐈𝐂𝐄 𝐑𝐎𝐋𝐋 ✦\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"╔═══[ 🎲 𝐑𝐨𝐥𝐥 ]═══╗\n"
+            f"║\n"
+            f"║  👤 {mention_html(user.id, user.first_name)}\n"
+            f"║\n"
+            f"║  🎲 Result: {faces[result-1]} ({result})\n"
+            f"║\n"
+            f"╚═══════════════════════╝\n"
+            f"𝐏ᴏᴡᴇʀᴇᴅ 𝐁ʏ: 『 Ʀᴜʜɪ ✘ Assɪsᴛᴀɴᴛ 』"
+        )
+        await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        await update.effective_message.reply_text(f"❌ Error: {str(e)[:100]}")
+
+
+# ═══════════════════════════════════════════════════════════════
+# SECTION 7 REGISTER FUNCTION
+# ═══════════════════════════════════════════════════════════════
+
+def register_section7_handlers(application):
+    """Register all Section 7 fun & games handlers"""
+    application.add_handler(CommandHandler(["fun", "games"], fun_command))
+    application.add_handler(CommandHandler("truth", truth_command))
+    application.add_handler(CommandHandler("dare", dare_command))
+    application.add_handler(CommandHandler(["8ball", "ball"], eightball_command))
+    application.add_handler(CommandHandler("dice", dice_command))
+    application.add_handler(CommandHandler("roll", roll_command))
+    application.add_handler(CommandHandler("flip", flip_command))
+    application.add_handler(CommandHandler("love", love_command))
+    application.add_handler(CommandHandler("roast", roast_command))
+    application.add_handler(CommandHandler("compliment", compliment_command))
+    application.add_handler(CommandHandler("joke", joke_command))
+    application.add_handler(CommandHandler("quote", quote_command))
+    application.add_handler(CommandHandler("trivia", trivia_command))
+    application.add_handler(CallbackQueryHandler(fun_section_callback, pattern="^fun_"))
+    application.add_handler(CallbackQueryHandler(fun_section_callback, pattern="^dare_accepted$"))
+    application.add_handler(CallbackQueryHandler(trivia_answer_callback, pattern=r"^trivia_[ABCD]_"))
+    logger.info("✅ Section 7: Fun & Games handlers registered!")
 
 
 # ╔══════════════════════════════════════════════════════════════╗
