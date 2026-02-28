@@ -142,7 +142,9 @@ UPDATES_CHANNEL = os.environ.get("UPDATES_CHANNEL", "")
 # ── Render specific ──
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
 PORT = int(os.environ.get("PORT", "10000"))
-WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", str(uuid4()))
+# Use stable secret derived from BOT_TOKEN if not explicitly set (uuid4 changes every restart!)
+_default_secret = hashlib.md5(BOT_TOKEN.encode()).hexdigest() if BOT_TOKEN else str(uuid4())
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", _default_secret)
 WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
 
 # ── Bot info ──
@@ -4658,98 +4660,6 @@ class WebServer:
 # ═══════════════════════════════════════════════════════════════
 # ◈ BOT INITIALIZATION & STARTUP
 # ═══════════════════════════════════════════════════════════════
-
-async def main():
-    if not DATABASE_URL:
-        logger.error("❌ DATABASE_URL not set!")
-        sys.exit(1)
-    if not OWNER_ID:
-        logger.error("❌ OWNER_ID not set!")
-        sys.exit(1)
-
-    # Build application
-    application = (
-        ApplicationBuilder()
-        .token(BOT_TOKEN)
-        .post_init(post_init)
-        .post_shutdown(post_shutdown)
-        .concurrent_updates(True)
-        .connect_timeout(30)
-        .read_timeout(30)
-        .write_timeout(30)
-        .build()
-    )
-
-    # Register handlers
-    register_handlers(application)
-
-    # ── Start with Webhook (Render) ──
-    if RENDER_EXTERNAL_URL:
-        webhook_url = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
-        logger.info(f"🌐 Starting webhook: {webhook_url}")
-
-        # Initialize application
-        await application.initialize()
-        await application.start()
-
-        # Set webhook
-        await application.bot.set_webhook(
-            url=webhook_url,
-            secret_token=WEBHOOK_SECRET,
-            allowed_updates=[
-                "message", "edited_message",
-                "callback_query", "chat_member",
-                "my_chat_member", "inline_query",
-                "chosen_inline_result",
-            ],
-            drop_pending_updates=True,
-        )
-        logger.info("✅ Webhook set successfully!")
-
-        # Start web server
-        web_server = WebServer(application)
-        runner = web.AppRunner(web_server.app)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", PORT)
-        await site.start()
-        logger.info(f"✅ Web server started on port {PORT}")
-
-        # Keep running
-        stop_event = asyncio.Event()
-
-        def handle_signal(sig):
-            logger.info(f"Received signal {sig}")
-            stop_event.set()
-
-        loop = asyncio.get_event_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
-                loop.add_signal_handler(sig, handle_signal, sig)
-            except NotImplementedError:
-                # Windows doesn't support add_signal_handler
-                pass
-
-        await stop_event.wait()
-
-        # Cleanup
-        logger.info("🔄 Stopping bot...")
-        await application.bot.delete_webhook()
-        await application.stop()
-        await application.shutdown()
-        await runner.cleanup()
-
-    else:
-        # ── Fallback: Polling (local development) ──
-        logger.info("🔄 Starting in polling mode...")
-        await application.run_polling(
-            drop_pending_updates=True,
-            allowed_updates=[
-                "message", "edited_message",
-                "callback_query", "chat_member",
-                "my_chat_member",
-            ],
-        )
-
 
 # ═══════════════════════════════════════════════════════════════
 # ═══════════════════════════════════════════════════════════════
@@ -26439,6 +26349,21 @@ async def post_init(application: "Application") -> None:
         except Exception as e: logger.error(f"{name} post_init error: {e}")
 
     asyncio.create_task(_s13_create_xp_table())
+
+    # ── Keep-alive ping to prevent Render free tier from sleeping ──
+    async def _keep_alive():
+        import aiohttp
+        while True:
+            await asyncio.sleep(8 * 60)  # ping every 8 minutes
+            try:
+                if RENDER_EXTERNAL_URL:
+                    async with aiohttp.ClientSession() as session:
+                        await session.get(f"{RENDER_EXTERNAL_URL}/health", timeout=aiohttp.ClientTimeout(total=10))
+                    logger.info("💓 Keep-alive ping sent")
+            except Exception:
+                pass
+    if RENDER_EXTERNAL_URL:
+        asyncio.create_task(_keep_alive())
 
     try:
         await application.bot.set_my_commands([
