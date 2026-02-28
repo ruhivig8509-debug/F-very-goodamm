@@ -1348,52 +1348,55 @@ class DatabaseManager:
             logger.info("Database connection closed.")
 
     async def _ensure_connected(self) -> None:
-        """Make sure pool is initialized before any query — with retry + backoff"""
+        """Make sure pool is initialized before any query"""
         if self.pool and self._ready:
             return
-
-        async with self._get_lock():
-            if self.pool and self._ready:
-                return
-
-            logger.warning("⚠️ DB pool not ready, reconnecting...")
-            for attempt in range(1, 6):
-                try:
-                    await self.connect()
-                    if self.pool and self._ready:
-                        logger.info("✅ DB reconnected successfully!")
-                        return
-                except Exception as e:
-                    wait = 2 ** attempt
-                    logger.error(f"❌ DB reconnect attempt {attempt}/5 failed: {e}. Waiting {wait}s...")
-                    await asyncio.sleep(wait)
-
-            if not self.pool:
-                raise RuntimeError("❌ Database unavailable after 5 retries! Check DATABASE_URL.")
+        logger.warning("⚠️ DB pool not ready, reconnecting...")
+        try:
+            await self.connect()
+        except Exception as e:
+            logger.error(f"❌ DB reconnect failed: {e}")
+            raise
 
     async def execute(self, query: str, *args) -> str:
-        """Execute a query"""
-        await self._ensure_connected()
-        async with self.pool.acquire() as conn:
-            return await conn.execute(query, *args)
+        """Execute a query — returns empty string if DB unavailable"""
+        try:
+            await self._ensure_connected()
+            async with self.pool.acquire() as conn:
+                return await conn.execute(query, *args)
+        except Exception as e:
+            logger.debug(f"DB execute error (non-fatal): {e}")
+            return ""
 
     async def fetch(self, query: str, *args) -> list:
-        """Fetch multiple rows"""
-        await self._ensure_connected()
-        async with self.pool.acquire() as conn:
-            return await conn.fetch(query, *args)
+        """Fetch multiple rows — returns [] if DB unavailable"""
+        try:
+            await self._ensure_connected()
+            async with self.pool.acquire() as conn:
+                return await conn.fetch(query, *args)
+        except Exception as e:
+            logger.debug(f"DB fetch error (non-fatal): {e}")
+            return []
 
     async def fetchrow(self, query: str, *args) -> Optional[asyncpg.Record]:
-        """Fetch a single row"""
-        await self._ensure_connected()
-        async with self.pool.acquire() as conn:
-            return await conn.fetchrow(query, *args)
+        """Fetch a single row — returns None if DB unavailable"""
+        try:
+            await self._ensure_connected()
+            async with self.pool.acquire() as conn:
+                return await conn.fetchrow(query, *args)
+        except Exception as e:
+            logger.debug(f"DB fetchrow error (non-fatal): {e}")
+            return None
 
     async def fetchval(self, query: str, *args) -> Any:
-        """Fetch a single value"""
-        await self._ensure_connected()
-        async with self.pool.acquire() as conn:
-            return await conn.fetchval(query, *args)
+        """Fetch a single value — returns None if DB unavailable"""
+        try:
+            await self._ensure_connected()
+            async with self.pool.acquire() as conn:
+                return await conn.fetchval(query, *args)
+        except Exception as e:
+            logger.debug(f"DB fetchval error (non-fatal): {e}")
+            return None
 
     # ═══════════════════════════════════════════════════════════
     # USER OPERATIONS
@@ -3606,8 +3609,8 @@ async def cmd_start(
     if not user or not chat or not message:
         return
 
-    # Track user
-    await track_user_chat(update, context)
+    # Track user in background (don't block the reply!)
+    asyncio.create_task(track_user_chat(update, context))
 
     bot_me = await context.bot.get_me()
     bot_username = bot_me.username
@@ -26334,8 +26337,10 @@ def register_handlers(application: "Application") -> None:
     application.add_handler(CommandHandler("rmsupport",   cmd_rmsupport))
     application.add_handler(CommandHandler("supportlist", cmd_supportlist))
     application.add_handler(CallbackQueryHandler(callback_handler))
+    async def _bg_track(update, context):
+        asyncio.create_task(track_user_chat(update, context))
     application.add_handler(
-        MessageHandler(filters.ALL & ~filters.COMMAND, track_user_chat), group=99)
+        MessageHandler(filters.ALL & ~filters.COMMAND, _bg_track), group=99)
     register_section2_handlers(application)
     register_section3_handlers(application)
     register_section4_handlers(application)
@@ -26355,18 +26360,27 @@ async def post_init(application: "Application") -> None:
     logger.info("🔄 Running post-init...")
 
     # ── DB connect with retries at startup ──
+    # Log masked URL so owner can verify it's correct
+    masked_url = DATABASE_URL[:30] + "..." if DATABASE_URL else "NOT SET!"
+    logger.info(f"🔗 Connecting to DB: {masked_url}")
     for attempt in range(1, 6):
         try:
             await db.connect()
-            logger.info("✅ DB connected")
+            logger.info("✅ DB connected successfully!")
             break
         except Exception as e:
             wait = 3 * attempt
-            logger.error(f"❌ DB connect attempt {attempt}/5 failed: {e}. Retrying in {wait}s...")
+            logger.error(f"❌ DB connect attempt {attempt}/5 failed: {type(e).__name__}: {e}. Retrying in {wait}s...")
             if attempt < 5:
                 await asyncio.sleep(wait)
             else:
-                logger.critical("❌ DB permanently unavailable at startup! Bot may not respond properly.")
+                logger.critical(
+                    "🚨 DB PERMANENTLY UNAVAILABLE! Check these on Render:\n"
+                    "  1. DATABASE_URL env var is set correctly\n"
+                    "  2. Your Render PostgreSQL is running\n"
+                    "  3. The DB is in the same Render region\n"
+                    "Bot will still run but DB features won't work!"
+                )
 
     # ── DB Watchdog: background task to keep DB alive ──
     async def _db_watchdog():
