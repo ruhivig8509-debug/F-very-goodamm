@@ -1808,12 +1808,15 @@ class CacheManager:
     def check_cooldown(
         self, key: str, cooldown: float = 3.0
     ) -> bool:
-        """Check command cooldown. Returns True if on cooldown."""
+        """Check command cooldown. Returns True if on cooldown.
+        NOTE: Only updates timestamp when NOT on cooldown (prevents Telegram
+        retries from blocking the next legitimate message).
+        """
         now = time.time()
         if key in self._command_cooldown:
             if now - self._command_cooldown[key] < cooldown:
-                return True
-        self._command_cooldown[key] = now
+                return True  # Still on cooldown - don't update timestamp
+        self._command_cooldown[key] = now  # Not on cooldown - record this time
         return False
 
     def is_command_disabled(
@@ -3593,7 +3596,6 @@ class Templates:
 # ───────────────────────────────────────────────────────────────
 
 @track_command
-@cooldown(2.0)
 async def cmd_start(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
@@ -3612,8 +3614,12 @@ async def cmd_start(
     # Track user in background (don't block the reply!)
     asyncio.create_task(track_user_chat(update, context))
 
-    bot_me = await context.bot.get_me()
-    bot_username = bot_me.username
+    # Use cached bot username instead of API call every time
+    bot_username = context.bot.username or context.bot_data.get("username", "")
+    if not bot_username:
+        bot_me = await context.bot.get_me()
+        bot_username = bot_me.username
+        context.bot_data["username"] = bot_username
 
     if chat.type == ChatType.PRIVATE:
         # Private chat - full start menu
@@ -4595,11 +4601,19 @@ async def error_handler(
     context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle errors"""
+    # Log with full traceback so we can see exactly what's failing
     logger.error(
-        f"Exception while handling an update: "
-        f"{context.error}",
+        f"🔴 EXCEPTION while handling update: {type(context.error).__name__}: {context.error}",
         exc_info=context.error,
     )
+    # Try to tell the user something went wrong
+    try:
+        if isinstance(update, Update) and update.effective_message:
+            await update.effective_message.reply_text(
+                "⚠️ Kuch error aaya, dobara try karo!",
+            )
+    except Exception:
+        pass
 
     # Log to channel
     if LOG_CHANNEL_ID:
@@ -26395,8 +26409,17 @@ async def post_init(application: "Application") -> None:
                     logger.error(f"DB watchdog error: {e}")
     asyncio.create_task(_db_watchdog())
 
-    try: await cache.load_from_db()
-    except Exception as e: logger.error(f"Cache error: {e}")
+    # Load cache only after DB is connected
+    if db._ready:
+        try:
+            await cache.load_from_db()
+            logger.info("✅ Cache loaded from DB!")
+        except Exception as e:
+            logger.error(f"Cache load error: {e}")
+    else:
+        # DB not ready - still add owner to sudo cache manually
+        cache._sudo_users.add(OWNER_ID)
+        logger.warning("⚠️ Cache loaded without DB - only owner set as sudo")
 
     for name, fn in [
         ("Sec2", section2_post_init),
@@ -26404,8 +26427,12 @@ async def post_init(application: "Application") -> None:
         ("Sec4", section4_post_init),
         ("Sec5", section5_post_init),
     ]:
-        try: await fn(application)
-        except Exception as e: logger.error(f"{name} post_init error: {e}")
+        try:
+            logger.info(f"🔄 Initializing {name}...")
+            await fn(application)
+            logger.info(f"✅ {name} initialized!")
+        except Exception as e:
+            logger.error(f"❌ {name} post_init error: {type(e).__name__}: {e}")
 
     asyncio.create_task(_s13_create_xp_table())
 
