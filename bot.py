@@ -650,32 +650,39 @@ class DatabaseManager:
         if self._ready and self.pool:
             return
 
-        async with self._get_lock():
-            if self._ready and self.pool:
-                return
+        try:
+            db_url = DATABASE_URL
+            if db_url.startswith("postgres://"):
+                db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-            try:
-                db_url = DATABASE_URL
-                # Render uses postgresql:// but asyncpg wants postgresql://
-                if db_url.startswith("postgres://"):
-                    db_url = db_url.replace("postgres://", "postgresql://", 1)
+            # Close old broken pool if exists
+            if self.pool:
+                try:
+                    await self.pool.close()
+                except Exception:
+                    pass
+                self.pool = None
+                self._ready = False
 
-                self.pool = await asyncpg.create_pool(
-                    dsn=db_url,
-                    min_size=2,
-                    max_size=10,
-                    max_inactive_connection_lifetime=300,
-                    command_timeout=60,
-                    statement_cache_size=0,
-                )
+            self.pool = await asyncpg.create_pool(
+                dsn=db_url,
+                min_size=1,
+                max_size=10,
+                max_inactive_connection_lifetime=300,
+                command_timeout=60,
+                statement_cache_size=0,
+                server_settings={"application_name": "RuhiBot"},
+            )
 
-                await self._create_tables()
-                self._ready = True
-                logger.info("✅ Database connected successfully!")
+            await self._create_tables()
+            self._ready = True
+            logger.info("✅ Database connected successfully!")
 
-            except Exception as e:
-                logger.error(f"❌ Database connection failed: {e}")
-                raise
+        except Exception as e:
+            self.pool = None
+            self._ready = False
+            logger.error(f"❌ Database connection failed: {e}")
+            raise
 
     async def _create_tables(self) -> None:
         """Create all required tables"""
@@ -1341,12 +1348,28 @@ class DatabaseManager:
             logger.info("Database connection closed.")
 
     async def _ensure_connected(self) -> None:
-        """Make sure pool is initialized before any query"""
-        if not self.pool or not self._ready:
+        """Make sure pool is initialized before any query — with retry + backoff"""
+        if self.pool and self._ready:
+            return
+
+        async with self._get_lock():
+            if self.pool and self._ready:
+                return
+
             logger.warning("⚠️ DB pool not ready, reconnecting...")
-            await self.connect()
-        if not self.pool:
-            raise RuntimeError("Database pool is unavailable. Check DATABASE_URL and DB connection.")
+            for attempt in range(1, 6):
+                try:
+                    await self.connect()
+                    if self.pool and self._ready:
+                        logger.info("✅ DB reconnected successfully!")
+                        return
+                except Exception as e:
+                    wait = 2 ** attempt
+                    logger.error(f"❌ DB reconnect attempt {attempt}/5 failed: {e}. Waiting {wait}s...")
+                    await asyncio.sleep(wait)
+
+            if not self.pool:
+                raise RuntimeError("❌ Database unavailable after 5 retries! Check DATABASE_URL.")
 
     async def execute(self, query: str, *args) -> str:
         """Execute a query"""
@@ -26330,11 +26353,33 @@ def register_handlers(application: "Application") -> None:
 
 async def post_init(application: "Application") -> None:
     logger.info("🔄 Running post-init...")
-    try:
-        await db.connect()
-        logger.info("✅ DB connected")
-    except Exception as e:
-        logger.error(f"❌ DB connect error: {e}")
+
+    # ── DB connect with retries at startup ──
+    for attempt in range(1, 6):
+        try:
+            await db.connect()
+            logger.info("✅ DB connected")
+            break
+        except Exception as e:
+            wait = 3 * attempt
+            logger.error(f"❌ DB connect attempt {attempt}/5 failed: {e}. Retrying in {wait}s...")
+            if attempt < 5:
+                await asyncio.sleep(wait)
+            else:
+                logger.critical("❌ DB permanently unavailable at startup! Bot may not respond properly.")
+
+    # ── DB Watchdog: background task to keep DB alive ──
+    async def _db_watchdog():
+        while True:
+            await asyncio.sleep(30)
+            if not db._ready or not db.pool:
+                logger.warning("🔁 DB watchdog: reconnecting...")
+                try:
+                    await db.connect()
+                    logger.info("✅ DB watchdog: reconnected!")
+                except Exception as e:
+                    logger.error(f"DB watchdog error: {e}")
+    asyncio.create_task(_db_watchdog())
 
     try: await cache.load_from_db()
     except Exception as e: logger.error(f"Cache error: {e}")
